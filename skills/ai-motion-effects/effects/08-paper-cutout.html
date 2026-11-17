@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>08 · Paper Cutout · 페이퍼 컷아웃</title>
+<!--
+EFFECT: Paper Cutout (페이퍼 컷아웃)
+느낌: 색종이를 오려 겹겹이 붙인 디오라마처럼 따뜻하고 손맛 있는 깊이감
+잘 맞는 곳: 히어로 배경, 브랜드 스토리·어바웃 섹션, 키즈·교육·여행·친환경 브랜드, 계절 이벤트 배너, 온보딩 일러스트
+피해야 할 곳: 데이터 대시보드·표, 정보 밀도가 높은 화면, 차갑고 정밀한 테크/금융 톤, 스크롤마다 반복되는 작은 카드
+핵심 기법:
+  - 레이어 = 각각 독립된 SVG(preserveAspectRatio="none" 언덕) + CSS 도형(해), 레이어마다 filter:drop-shadow로 종이 사이 그림자
+  - 종이 질감: SVG feTurbulence(fractalNoise) → 회색 노이즈 → mix-blend-mode:soft-light 오버레이 (이미지 파일 없음)
+  - 패럴랙스: JS가 포인터 위치를 lerp해 --mx/--my(-1~1)만 갱신, CSS가 translate = --mx × --depth × --shift-x 로 계산
+  - 개별 흔들림: CSS animation은 transform, 패럴랙스는 개별 속성 translate → 같은 요소에서 충돌 없이 합성
+조절 포인트:
+  --hill-1 ~ --hill-4, --sky-*, --sun   종이 색 팔레트
+  --shift-x / --shift-y   depth 1 레이어의 최대 패럴랙스 이동량 (기본 28px / 12px)
+  --depth (레이어별)      0 = 고정, 클수록 앞에 있는 종이 (카드 1.2)
+  --amp / --sway          레이어별 흔들림 폭·주기
+  --layer-shadow          종이 사이 그림자 세기
+  EASE (JS)               포인터를 따라가는 부드러움 (0.05 느림 ~ 0.2 빠름)
+  .grain opacity / baseFrequency   종이 질감 강도·결의 굵기
+성능: 보통 — 레이어 이동은 translate/transform(컴포지터)이지만 큰 SVG 레이어 6장 + drop-shadow 필터가 있어 첫 래스터 비용이 있음. JS 루프는 포인터 목표에 수렴하면 스스로 멈춤(상시 rAF 없음)
+접근성: 장면 전체는 aria-hidden 장식, 의미는 카드 h1/p에만. reduced-motion에서는 흔들림·패럴랙스를 모두 끄고 정지된 장면을 보여줌. 카드 글자 #3b2235 on #fffdf8 대비 약 13:1, 보조 글자 약 5.9:1
+이식 메모:
+  - React: 레이어를 배열로 두고 map 렌더({depth, color, d}), 포인터 lerp는 useEffect에서 ref.current.style.setProperty('--mx', …) — state로 관리하면 매 프레임 리렌더되므로 금지. cleanup에서 리스너·rAF 해제
+  - Tailwind: [translate:calc(var(--mx)*var(--depth)*-28px)_calc(var(--my)*var(--depth)*-12px)] 같은 arbitrary property, 그림자는 drop-shadow-[...]
+  - Next.js: 장면은 서버 컴포넌트, 포인터 패럴랙스만 'use client' 래퍼로 감싸기
+  - SVG filter id(#paper-noise)는 페이지 안에서 유일해야 하므로 컴포넌트로 만들면 useId()로 생성
+-->
+<style>
+  :root{
+    --sky-top:#ffe8d0; --sky-bottom:#ffc9ad;
+    --sun:#ff7d55; --cloud:#fffaf3;
+    --hill-1:#f6b495; --hill-2:#eb8c7a; --hill-3:#c76878; --hill-4:#7a4266;
+    --paper:#fffdf8; --ink:#3b2235; --ink-soft:#7c5a6e; --accent:#b8445f;
+    --shift-x:28px;   /* depth 1 레이어의 최대 좌우 이동 */
+    --shift-y:12px;
+    --layer-shadow:drop-shadow(0 -3px 9px rgba(96,32,56,.26));
+    --font:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--sky-bottom);color:var(--ink);font-family:var(--font)}
+
+  .scene{
+    position:relative;height:100%;overflow:hidden;isolation:isolate;
+    display:grid;justify-items:center;align-content:center;padding:16px;
+    background:linear-gradient(var(--sky-top) 0%,var(--sky-bottom) 70%);
+  }
+
+  /* ───── 깊이 레이어 공통: 패럴랙스(translate) + 흔들림(transform) ───── */
+  .depth{
+    translate:calc(var(--mx,0) * var(--depth) * var(--shift-x) * -1) calc(var(--my,0) * var(--depth) * var(--shift-y) * -1);
+    animation:sway var(--sway,10s) ease-in-out infinite alternate;
+    will-change:translate,transform;
+  }
+  @keyframes sway{from{transform:translateX(calc(var(--amp,6px) * -1))}to{transform:translateX(var(--amp,6px))}}
+
+  .layer{position:absolute;pointer-events:none}
+  .hill{left:-12%;width:124%;bottom:-6%;height:106%;filter:var(--layer-shadow)}
+  .hill path{stroke:rgba(255,255,255,.35);stroke-width:1.5;vector-effect:non-scaling-stroke} /* 오린 단면의 밝은 테두리 */
+  .hill--1 path{fill:var(--hill-1)} .hill--2 path{fill:var(--hill-2)}
+  .hill--3 path{fill:var(--hill-3)} .hill--4 path{fill:var(--hill-4)}
+
+  .sun{
+    right:14%;top:9%;width:clamp(54px,17vmin,200px);aspect-ratio:1;border-radius:50%;
+    background:radial-gradient(circle at 38% 35%,#ffa77a,var(--sun) 65%);
+    filter:drop-shadow(0 4px 8px rgba(150,50,40,.22));
+  }
+  .cloud{height:auto;fill:var(--cloud);filter:drop-shadow(0 5px 6px rgba(120,50,60,.18))}
+  .cloud--a{left:7%;top:13%;width:clamp(64px,17vmin,200px)}
+  .cloud--b{left:52%;top:34%;width:clamp(46px,12vmin,150px)}
+
+  /* ───── 종이 카드 (가장 앞 레이어) ───── */
+  .card{
+    position:relative;z-index:5;width:min(86%,440px);margin-top:9vh;
+    padding:clamp(18px,3.8vmin,32px) clamp(16px,4.2vmin,36px) clamp(14px,3.4vmin,28px);
+    background:var(--paper);border-radius:4px;text-align:center;
+    box-shadow:0 1px 2px rgba(90,30,50,.12),0 18px 34px -12px rgba(90,30,50,.45);
+  }
+  .card.depth{animation-name:bob}
+  @keyframes bob{from{transform:rotate(-2deg) translateY(-2px)}to{transform:rotate(-.6deg) translateY(3px)}}
+  .card::before{ /* 마스킹 테이프 */
+    content:"";position:absolute;left:50%;top:-11px;width:clamp(60px,14vmin,96px);height:22px;
+    translate:-50% 0;rotate:3deg;background:rgba(255,226,168,.8);
+    clip-path:polygon(3% 0,97% 0,100% 20%,97% 40%,100% 60%,97% 80%,100% 100%,3% 100%,0 80%,3% 60%,0 40%,3% 20%);
+  }
+  .card .eyebrow{margin:0 0 .7em;font-size:clamp(10px,1.6vmin,12px);font-weight:800;letter-spacing:.3em;padding-left:.3em;color:var(--accent)}
+  .card h1{margin:0;font-size:clamp(20px,5.6vmin,46px);font-weight:800;line-height:1.2;letter-spacing:-.02em}
+  .card p:last-child{margin:.7em 0 0;font-size:clamp(12px,1.9vmin,16px);line-height:1.55;color:var(--ink-soft)}
+
+  /* 종이 질감 오버레이 */
+  .grain{position:absolute;inset:0;width:100%;height:100%;z-index:10;pointer-events:none;mix-blend-mode:soft-light;opacity:.5}
+
+  @media (prefers-reduced-motion: reduce){
+    .depth,.card.depth{animation:none}
+    .card.depth{transform:rotate(-1.4deg)}
+  }
+
+  .tag{position:fixed;left:12px;bottom:12px;margin:0;font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff}
+</style>
+</head>
+<body>
+  <main class="scene">
+    <!-- 뒤 → 앞 순서 = 그리는 순서. --depth가 클수록 포인터에 더 크게 반응 -->
+    <div class="layer sun depth" style="--depth:.1;--amp:0px" aria-hidden="true"></div>
+    <svg class="layer cloud cloud--a depth" style="--depth:.25;--amp:10px;--sway:9s" viewBox="0 0 120 60" aria-hidden="true">
+      <path d="M18 52A16 16 0 0 1 22 22A24 24 0 0 1 66 14A20 20 0 0 1 100 26A14 14 0 0 1 104 52Z"/>
+    </svg>
+    <svg class="layer cloud cloud--b depth" style="--depth:.35;--amp:14px;--sway:12s" viewBox="0 0 120 60" aria-hidden="true">
+      <path d="M18 52A16 16 0 0 1 22 22A24 24 0 0 1 66 14A20 20 0 0 1 100 26A14 14 0 0 1 104 52Z"/>
+    </svg>
+    <svg class="layer hill hill--1 depth" style="--depth:.3;--amp:4px;--sway:13s" viewBox="0 0 1200 800" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 420C140 330 260 320 380 370S620 300 760 330S1040 380 1200 340V800H0Z"/>
+    </svg>
+    <svg class="layer hill hill--2 depth" style="--depth:.55;--amp:6px;--sway:11s" viewBox="0 0 1200 800" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 480C120 430 250 420 360 460S560 520 700 470S980 400 1200 460V800H0Z"/>
+    </svg>
+    <svg class="layer hill hill--3 depth" style="--depth:.8;--amp:8px;--sway:9s" viewBox="0 0 1200 800" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 560C150 520 300 500 430 545S700 600 860 555S1080 520 1200 560V800H0Z"/>
+    </svg>
+    <svg class="layer hill hill--4 depth" style="--depth:1.1;--amp:10px;--sway:7.5s" viewBox="0 0 1200 800" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 660C170 610 330 620 480 650S760 700 920 650S1110 640 1200 670V800H0Z"/>
+    </svg>
+
+    <article class="card depth" style="--depth:1.2;--sway:6s">
+      <p class="eyebrow">PAPER CUTOUT</p>
+      <h1>종이로 오려 만든 오후</h1>
+      <p>겹겹이 쌓인 종이가 포인터를 따라 천천히 움직여요</p>
+    </article>
+
+    <svg class="grain" aria-hidden="true">
+      <filter id="paper-noise">
+        <feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="3" stitchTiles="stitch"/>
+        <feColorMatrix values="0 0 0 1 0  0 0 0 1 0  0 0 0 1 0  0 0 0 0 1"/> <!-- 노이즈 → 불투명 회색 -->
+      </filter>
+      <rect width="100%" height="100%" filter="url(#paper-noise)"/>
+    </svg>
+  </main>
+  <p class="tag">08 · Paper Cutout</p>
+
+  <script>
+  (() => {
+    const scene = document.querySelector('.scene');
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+    const EASE = 0.08; // 포인터를 따라가는 속도 (lerp 계수)
+    let tx = 0, ty = 0, x = 0, y = 0, raf = 0;
+
+    // 목표(tx,ty)에 수렴할 때까지만 도는 rAF — 멈춰 있으면 비용 0
+    const tick = () => {
+      raf = 0;
+      x += (tx - x) * EASE;
+      y += (ty - y) * EASE;
+      scene.style.setProperty('--mx', x.toFixed(4));
+      scene.style.setProperty('--my', y.toFixed(4));
+      if (!document.hidden && Math.abs(tx - x) + Math.abs(ty - y) > 0.001) raf = requestAnimationFrame(tick);
+    };
+    const kick = () => { if (!raf) raf = requestAnimationFrame(tick); };
+
+    scene.addEventListener('pointermove', e => {
+      if (reduce.matches) return;
+      const r = scene.getBoundingClientRect();
+      tx = ((e.clientX - r.left) / r.width) * 2 - 1;   // -1 ~ 1
+      ty = ((e.clientY - r.top) / r.height) * 2 - 1;
+      kick();
+    });
+    scene.addEventListener('pointerleave', () => { tx = ty = 0; kick(); });
+  })();
+  </script>
+</body>
+</html>

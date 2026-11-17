@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>회원가입 — 오늘의집밥</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #fafaf9; color: #1c1917; margin: 0; }
+    main { max-width: 420px; margin: 48px auto; background: #fff; padding: 32px; border-radius: 16px; border: 1px solid #e7e5e4; }
+    h1 { font-size: 22px; margin: 0 0 24px; }
+    fieldset { border: 0; padding: 0; margin: 0; }
+    legend { font-weight: 700; margin-bottom: 12px; }
+    label { display: block; font-size: 14px; margin: 12px 0 4px; }
+    input[type=email], input[type=password], input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid #d6d3d1; border-radius: 8px; font-size: 15px; box-sizing: border-box; }
+    .actions { display: flex; justify-content: space-between; margin-top: 24px; }
+    button { padding: 10px 18px; border-radius: 8px; border: 1px solid #d6d3d1; background: #fff; font-size: 15px; cursor: pointer; }
+    button.primary { background: #c2410c; border-color: #c2410c; color: #fff; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>회원가입</h1>
+    <form id="signup" novalidate>
+      <fieldset data-step="1">
+        <legend>계정 정보</legend>
+        <label for="email">이메일</label>
+        <input id="email" name="email" type="email" autocomplete="email" required>
+        <label for="password">비밀번호</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" required>
+        <div class="actions"><span></span><button type="button" class="primary" data-next>다음</button></div>
+      </fieldset>
+
+      <fieldset data-step="2" hidden>
+        <legend>프로필</legend>
+        <label for="nickname">닉네임</label>
+        <input id="nickname" name="nickname" type="text" required>
+        <div class="actions"><button type="button" data-prev>이전</button><button type="button" class="primary" data-next>다음</button></div>
+      </fieldset>
+
+      <fieldset data-step="3" hidden>
+        <legend>약관 동의</legend>
+        <label><input type="checkbox" name="terms" required> 이용약관 및 개인정보 처리방침에 동의합니다</label>
+        <div class="actions"><button type="button" data-prev>이전</button><button type="submit" class="primary">가입하기</button></div>
+      </fieldset>
+    </form>
+  </main>
+
+  <script>
+    const steps = [...document.querySelectorAll('fieldset[data-step]')];
+    let current = 0;
+    function show(i) {
+      steps.forEach((s, j) => (s.hidden = j !== i));
+      current = i;
+    }
+    document.querySelectorAll('[data-next]').forEach(b => b.addEventListener('click', () => show(Math.min(current + 1, steps.length - 1))));
+    document.querySelectorAll('[data-prev]').forEach(b => b.addEventListener('click', () => show(Math.max(current - 1, 0))));
+  </script>
+</body>
+</html>

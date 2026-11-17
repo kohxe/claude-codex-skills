@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>03 · Claymorphism · 클레이모피즘</title>
+<!--
+EFFECT: Claymorphism (클레이모피즘)
+느낌: 손으로 빚은 점토처럼 말랑하고 통통한 3D — 친근하고 장난스러운 인상
+잘 맞는 곳: 습관·헬스케어·교육·키즈 앱 카드, 온보딩 화면, 큰 CTA 버튼, 토글·칩 같은 작은 컨트롤
+피해야 할 곳: 정보 밀도 높은 대시보드·표, 진지한 금융·법무 톤, 어두운 테마(하이라이트·음영 셰이딩이 묻힘)
+핵심 기법:
+  - box-shadow 3겹: 바깥 drop shadow + inset 밝은 하이라이트(좌상) + inset 어두운 음영(우하)
+  - 음영색은 color-mix(in oklab, 자기색, 보라) → 어떤 파스텔에 써도 같은 계열로 자연스럽게 어두워짐
+  - --d(깊이 배율) 하나로 그림자 3겹을 비례 조절 → :active 에서 --d 를 줄이면 '꾹' 눌림
+  - 스프링 cubic-bezier(.34,1.56,.64,1) 로 놓을 때 통 튕김 + 느린 float 키프레임
+조절 포인트:
+  - --c: 요소 채움색(파스텔), --d: 깊이(1 기본 · 카드 1.4 · 눌림 .35)
+  - --radius: 모서리 둥글기(클레이는 크게, 24px 이상)
+  - --spring: 눌림·토글 이징, --float: 둥실 주기
+  - 하이라이트 rgba(255,255,255,.8) / 음영 섞는 색 #3d1f73
+성능: 가벼움 — box-shadow + transform 뿐. 단 블러 큰 그림자를 수십 개 동시에 애니메이션하면 페인트 비용↑ → float 는 큰 요소 몇 개에만
+접근성: prefers-reduced-motion 이면 float 를 끄고 눌림·토글·진행 전환을 즉시 처리. 파스텔 위 글자는 진한 잉크색(#3b2a5e)으로 4.5:1 이상, 흰 글자는 피함. 토글은 role="switch" + aria-checked, 완료 버튼은 aria-pressed
+이식 메모:
+  - Tailwind: 3겹 그림자를 theme.extend.boxShadow.clay 에 등록하거나 shadow-[...] 임의값(공백은 _), 눌림은 active:scale-y-90
+  - React: 토글은 aria-checked 를 state 로, 스타일은 [aria-checked=true] 선택자 그대로 재사용 (Tailwind: aria-checked:bg-…)
+  - color-mix 미지원(구형 Safari 16.2 미만)은 음영색을 직접 지정해 폴백
+-->
+<style>
+  :root{
+    --bg-a:#ffe3ee; --bg-b:#e4e0ff;
+    --ink:#3b2a5e; --ink-soft:#5f4f86;
+    --card:#f7f0ff; --pink:#ff9cc4; --mint:#93e4c8; --peach:#ffc49e; --lilac:#c9b6ff;
+    --radius:clamp(26px,7vmin,40px);
+    --spring:cubic-bezier(.34,1.56,.64,1);   /* 살짝 넘쳤다 돌아오는 스프링 */
+    --float:6s;
+  }
+  html,body{margin:0;height:100%}
+  body{background:var(--bg-b);color:var(--ink);font-family:ui-rounded,system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+  .demo{height:100%;display:grid;place-items:center;overflow:hidden;background:linear-gradient(150deg,var(--bg-a),var(--bg-b))}
+
+  /* ── ★ 핵심: 클레이 셰이딩 (바깥 그림자 + 안쪽 하이라이트 + 안쪽 음영) ── */
+  .clay{
+    --c:var(--card); --d:1;
+    background:var(--c);
+    box-shadow:
+      0 calc(14px * var(--d)) calc(28px * var(--d)) calc(-6px * var(--d)) rgba(70,40,130,.3),
+      inset calc(5px * var(--d)) calc(7px * var(--d)) calc(12px * var(--d)) rgba(255,255,255,.8),
+      inset calc(-7px * var(--d)) calc(-9px * var(--d)) calc(16px * var(--d)) color-mix(in oklab,var(--c),#3d1f73 30%);
+  }
+  /* 눌림: 깊이를 줄이고 납작하게 → 놓으면 스프링으로 통 튕겨 복귀 */
+  .press{border:0;cursor:pointer;font:inherit;color:inherit;transition:transform .5s var(--spring),box-shadow .35s ease}
+  .press:hover{transform:translateY(-2px)}
+  .press:active{--d:.35;transform:scale(1.04,.9);transition-duration:.12s}
+  .press:focus-visible,.switch:focus-visible{outline:3px solid #6b4fd8;outline-offset:4px}
+
+  .float{animation:float var(--float) ease-in-out infinite}
+  @keyframes float{50%{transform:translateY(-8px) rotate(-.6deg)}}
+
+  /* 카드 */
+  .scene{position:relative}
+  .card{--d:1.4;position:relative;z-index:1;box-sizing:border-box;width:min(84vw,340px);padding:clamp(16px,4.6vmin,28px);border-radius:var(--radius);display:grid;gap:clamp(10px,2.8vmin,18px)}
+  .head{display:flex;align-items:center;gap:clamp(10px,3vmin,16px)}
+  .icon{--c:var(--peach);--d:.6;flex:none;width:clamp(42px,11vmin,58px);aspect-ratio:1;border-radius:36%;display:grid;place-items:center}
+  .icon svg{width:52%;fill:#fff;filter:drop-shadow(0 2px 2px rgba(150,70,20,.3))}
+  .title{margin:0;font-size:clamp(17px,4.6vmin,24px);font-weight:800;letter-spacing:-.01em}
+  .meta{margin:.2em 0 0;font-size:clamp(12px,3vmin,14px);font-weight:600;color:var(--ink-soft)}
+  .track{height:clamp(14px,3.4vmin,18px);box-sizing:border-box;padding:3px;border-radius:999px;background:#ece2fb;box-shadow:inset 3px 4px 7px rgba(70,40,130,.22),inset -3px -3px 6px #fff}
+  .track__fill{display:block;height:100%;width:var(--progress,70%);border-radius:inherit;background:var(--peach);transition:width .7s cubic-bezier(.2,.8,.2,1);
+    box-shadow:inset 2px 2px 3px rgba(255,255,255,.75),inset -2px -3px 4px color-mix(in oklab,var(--peach),#7a3d1f 30%)}
+  .row{display:flex;align-items:center;justify-content:space-between;font-weight:700;font-size:clamp(13px,3.2vmin,15px)}
+
+  /* 토글: 움푹 들어간 홈 + 점토 구슬 */
+  .switch{--w:clamp(54px,14vmin,64px);position:relative;flex:none;width:var(--w);height:calc(var(--w) * .56);padding:0;border:0;border-radius:999px;cursor:pointer;
+    background:#e6dcf6;box-shadow:inset 4px 5px 9px rgba(70,40,130,.25),inset -4px -4px 8px rgba(255,255,255,.9);transition:background-color .3s}
+  .switch[aria-checked="true"]{background:var(--mint)}
+  .switch__knob{position:absolute;top:10%;left:6%;height:80%;aspect-ratio:1;border-radius:50%;background:#fff;transition:transform .5s var(--spring);
+    box-shadow:0 4px 8px -2px rgba(70,40,130,.35),inset 2px 3px 4px #fff,inset -3px -4px 6px rgba(120,90,170,.3)}
+  .switch[aria-checked="true"] .switch__knob{transform:translateX(calc(var(--w) * .43))}
+
+  /* 알약 버튼 */
+  .pill{--c:var(--pink);--d:.9;width:100%;padding:.95em 1em;border-radius:999px;font-size:clamp(14px,3.4vmin,16px);font-weight:800;color:#4a1838}
+  .pill[aria-pressed="true"]{--c:var(--mint);color:#173f33}
+
+  /* 장식용 점토 구슬 */
+  .clay-blob{position:absolute;border-radius:50%;aspect-ratio:1;animation:float calc(var(--float) * 1.4) ease-in-out infinite}
+  .b1{--c:var(--pink);width:clamp(44px,13vmin,96px);top:-9%;left:-10%;animation-delay:-2s}
+  .b2{--c:var(--mint);width:clamp(56px,16vmin,120px);bottom:-10%;right:-12%;animation-delay:-4s}
+  .b3{--c:var(--lilac);--d:.6;width:clamp(22px,6vmin,44px);top:14%;right:-9%;animation-delay:-1s}
+
+  @media (prefers-reduced-motion: reduce){
+    .float,.clay-blob{animation:none}
+    .press,.switch,.switch__knob,.track__fill{transition-duration:.01ms}
+  }
+
+  .tag{position:fixed;left:12px;bottom:12px;margin:0;z-index:10;font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff}
+</style>
+</head>
+<body>
+  <main class="demo">
+    <div class="scene">
+      <span class="clay clay-blob b1" aria-hidden="true"></span>
+      <span class="clay clay-blob b3" aria-hidden="true"></span>
+      <span class="clay clay-blob b2" aria-hidden="true"></span>
+      <article class="clay card float">
+        <header class="head">
+          <span class="clay icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 2C12.8 8 16 11.2 22 12C16 12.8 12.8 16 12 22C11.2 16 8 12.8 2 12C8 11.2 11.2 8 12 2Z"/></svg>
+          </span>
+          <div>
+            <h1 class="title">아침 스트레칭</h1>
+            <p class="meta">10분 · <span id="streak">6</span>일째 연속</p>
+          </div>
+        </header>
+        <div class="track" role="progressbar" aria-label="이번 주 달성률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70"><span class="track__fill"></span></div>
+        <div class="row">
+          <span id="remind-label">알림 받기</span>
+          <button class="switch" type="button" role="switch" aria-checked="true" aria-labelledby="remind-label"><span class="switch__knob"></span></button>
+        </div>
+        <button class="clay press pill" type="button" aria-pressed="false">오늘 완료하기</button>
+      </article>
+    </div>
+  </main>
+  <p class="tag">03 · Claymorphism</p>
+
+  <script>
+  /* 상태만 aria 속성으로 바꾸면 모양·움직임은 CSS 가 처리 */
+  const sw = document.querySelector('.switch');
+  sw.addEventListener('click', () => sw.setAttribute('aria-checked', String(sw.getAttribute('aria-checked') !== 'true')));
+
+  const done = document.querySelector('.pill');
+  const card = document.querySelector('.card');
+  const bar = document.querySelector('.track');
+  done.addEventListener('click', () => {
+    const on = done.getAttribute('aria-pressed') !== 'true';
+    done.setAttribute('aria-pressed', String(on));
+    done.textContent = on ? '완료! 내일 또 만나요' : '오늘 완료하기';
+    card.style.setProperty('--progress', on ? '100%' : '70%');
+    bar.setAttribute('aria-valuenow', on ? '100' : '70');
+    document.getElementById('streak').textContent = on ? '7' : '6';
+  });
+  </script>
+</body>
+</html>

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>14 · Shape Morph · 셰이프 모프</title>
+<!--
+EFFECT: Shape Morph (셰이프 모프)
+느낌: 하나의 형태가 말랑하게 녹아 다른 형태로 바뀌는, 유기적이고 매끄러운 변신
+잘 맞는 곳: 히어로 비주얼, 브랜드 로고·마스코트 인트로, 상태 전환(재생↔정지, 좋아요), 온보딩 일러스트, 로딩 화면
+피해야 할 곳: 텍스트 바로 뒤(가독성 저하), 빠르게 반복되는 작업 UI, 의미가 고정돼야 하는 아이콘
+핵심 기법:
+  - (a) CSS 블롭: border-radius 8값 문법(가로 4개 / 세로 4개)을 키프레임으로 보간 + 느린 rotate
+  - (b) SVG 패스 모프: 모든 모양을 '같은 N개의 점'으로 샘플링 → 매 프레임 선형 보간 → Catmull-Rom으로 N개의 큐빅(C) 세그먼트 path 생성
+  - 시작점(12시)·진행 방향(시계)을 통일해 꼬임 방지, easeInOutCubic
+  - @property로 등록한 --c1/--c2 색 변수 → 모양과 함께 그라디언트·그림자도 부드럽게 전환
+조절 포인트:
+  - N: 점 개수(모든 모양 공통, 10의 배수) — 클수록 별 꼭짓점이 날카로움
+  - MORPH_MS / HOLD_MS: 변신 시간 / 머무는 시간
+  - SHAPES[].c: 모양별 그라디언트 두 색 / SHAPES[].pts: 모양 함수(polar, star, heart)
+  - --blob-dur: CSS 블롭 주기, @keyframes blob의 border-radius 값들
+성능: 보통 — 변신 중에만 매 프레임 path d 재계산(점 60개) + drop-shadow 재페인트. 대기 중엔 rAF 정지,
+      탭 숨김·화면 밖이면 자동 순환 정지
+접근성: prefers-reduced-motion이면 블롭·자동 순환 정지, '다음 모양' 버튼으로 트윈 없이 즉시 전환.
+        SVG는 role="img" + 라벨 연결, 라벨 aria-live는 사용자가 버튼으로 바꿀 때만 polite(자동 순환은 낭독 안 함).
+        자동 순환 일시정지 버튼 제공. 텍스트는 #1c1833 on 연보라 ≈ 14:1
+이식 메모:
+  - React: useRef(path) + useEffect에서 rAF 루프, cleanup에서 cancelAnimationFrame·clearTimeout·observer.disconnect().
+    점 배열은 ref에 두고 setAttribute로 직접 갱신(매 프레임 setState 금지)
+  - Next.js: 'use client'. SSR엔 첫 모양의 d를 미리 계산해 넣으면 첫 페인트 깜빡임 없음
+  - Tailwind: 블롭은 rounded-[42%_58%_63%_37%/41%_44%_56%_59%] + config keyframes
+  - 점 개수가 다른 기존 SVG끼리 모프해야 하면 flubber 같은 라이브러리로 리샘플링
+-->
+<style>
+  @property --c1{syntax:"<color>";inherits:true;initial-value:#7c5cff}
+  @property --c2{syntax:"<color>";inherits:true;initial-value:#22d3ee}
+  :root{
+    --bg:#f3f0ff; --ink:#1c1833; --muted:#4f4a6b;
+    --c1:#7c5cff; --c2:#22d3ee;                    /* 현재 모양의 그라디언트 — JS가 교체 */
+    --blob-dur:9s;
+    --sans:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+    transition:--c1 1.1s ease,--c2 1.1s ease;      /* @property 덕분에 색도 보간됨 */
+  }
+  html,body{margin:0;height:100%}
+  body{display:grid;place-items:center;overflow:hidden;color:var(--ink);font-family:var(--sans);
+    background:radial-gradient(70% 60% at 50% 32%,#fff 0%,transparent 70%),var(--bg)}
+  .demo{display:grid;justify-items:center;gap:clamp(6px,1.8vmin,14px);text-align:center}
+  .stage{position:relative;width:min(52vmin,400px);aspect-ratio:1;display:grid;place-items:center}
+
+  /* ── (a) CSS 블롭: border-radius 8값 모프 ── */
+  .blob{position:absolute;inset:2%;opacity:.3;background:linear-gradient(135deg,var(--c1),var(--c2));
+    border-radius:42% 58% 63% 37%/41% 44% 56% 59%;
+    animation:blob var(--blob-dur) ease-in-out infinite,turn calc(var(--blob-dur) * 3) linear infinite}
+  .blob.ring{inset:-3%;opacity:.6;background:none;border:2px solid var(--c1);
+    animation-duration:calc(var(--blob-dur) * 1.3),calc(var(--blob-dur) * 4);animation-direction:reverse}
+  @keyframes blob{
+    0%,100%{border-radius:42% 58% 63% 37%/41% 44% 56% 59%}
+    33%{border-radius:68% 32% 46% 54%/32% 62% 38% 68%}
+    66%{border-radius:35% 65% 30% 70%/62% 35% 65% 38%}
+  }
+  @keyframes turn{to{rotate:360deg}}
+
+  /* ── (b) SVG 패스 모프 ── */
+  .morph{position:relative;width:78%;overflow:visible;
+    filter:drop-shadow(0 1.6vmin 2.2vmin color-mix(in srgb,var(--c1) 40%,transparent))}
+  .s1{stop-color:var(--c1)} .s2{stop-color:var(--c2)}
+
+  .kicker{margin:0;font:700 clamp(10px,2.3vmin,12px)/1 var(--sans);letter-spacing:.2em;color:var(--muted)}
+  .label{margin:0;font:800 clamp(24px,6.6vmin,52px)/1.1 var(--sans);letter-spacing:-.03em}
+  .label .ko{padding-bottom:.04em;background:linear-gradient(90deg,var(--c1),var(--c2)) left bottom/100% .12em no-repeat}
+  .label .en{font-size:max(11px,.42em);font-weight:600;letter-spacing:.04em;color:var(--muted)}
+  .controls{display:flex;gap:8px;justify-content:center;margin-top:clamp(2px,.8vmin,6px)}
+  .btn{font:700 clamp(12px,2.8vmin,14px)/1 var(--sans);color:var(--ink);background:#fff;cursor:pointer;
+    border:1px solid rgba(28,24,51,.16);border-radius:999px;padding:.8em 1.2em;
+    box-shadow:0 2px 8px -2px rgba(28,24,51,.15);transition:transform .2s,box-shadow .2s}
+  .btn:hover{transform:translateY(-1px);box-shadow:0 6px 16px -6px rgba(28,24,51,.3)}
+  .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .btn:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+
+  .tag{position:fixed;left:12px;bottom:12px;z-index:10;margin:0;font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;}
+
+  @media (prefers-reduced-motion:reduce){
+    :root{transition:none}
+    .blob{animation:none}
+    .btn{transition:none}
+    #toggle{display:none}                          /* 자동 순환이 없으므로 불필요 */
+  }
+</style>
+</head>
+<body>
+  <main class="demo">
+    <div class="stage">
+      <div class="blob" aria-hidden="true"></div>
+      <div class="blob ring" aria-hidden="true"></div>
+      <svg class="morph" viewBox="-120 -120 240 240" role="img" aria-labelledby="shape-name">
+        <defs>
+          <linearGradient id="morph-grad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" class="s1"/><stop offset="1" class="s2"/>
+          </linearGradient>
+        </defs>
+        <path id="morph-path" fill="url(#morph-grad)" stroke="rgba(255,255,255,.6)" stroke-width="1.5"/>
+      </svg>
+    </div>
+    <p class="kicker">SHAPE MORPH</p>
+    <h1 class="label" id="shape-name" aria-live="off"><span class="ko">원</span> <span class="en">Circle</span></h1>
+    <div class="controls">
+      <button class="btn" type="button" id="toggle" aria-pressed="false" aria-label="자동 변신 일시정지"><span aria-hidden="true">II</span></button>
+      <button class="btn primary" type="button" id="next">다음 모양 →</button>
+    </div>
+  </main>
+  <p class="tag">14 · Shape Morph</p>
+
+  <script>
+  /* ═══ (b) SVG 패스 모프 — 라이브러리 없이 점 보간 ═══════════════════════
+     왜 점(명령) 개수가 같아야 하나?
+     path d 보간은 '같은 순서에 있는 숫자끼리' 섞는 것이다. 모양마다 명령 종류(M/C/Z)나 개수가
+     다르면 짝지을 숫자가 없어서 브라우저(SMIL·CSS d)는 보간을 포기하고 뚝 끊어 바꾼다.
+     → 모든 모양을 N개 점으로 샘플링하고 같은 방식(N개의 C 세그먼트)으로 그린다.
+       시작점(12시)과 방향(시계)까지 맞춰야 중간 프레임에서 모양이 꼬이지 않는다.
+     SMIL <animate attributeName="d" values="A;B;C">도 이 규칙만 지키면 동작하지만, 이징·라벨/색
+     동기화·일시정지·reduced-motion 제어는 JS가 훨씬 쉬워 JS 보간을 택했다.
+     (CSS transition으로 d: path()를 보간하는 방법은 Safari 미지원) */
+  const N = 60, R = 100, TAU = Math.PI * 2;
+  const MORPH_MS = 1100, HOLD_MS = 1600;
+
+  // 극좌표 모양: 12시(-90°)에서 시작해 시계 방향으로 N개 점
+  const polar = r => Array.from({ length: N }, (_, i) => {
+    const a = -Math.PI / 2 + (i / N) * TAU, d = r(a);
+    return [d * Math.cos(a), d * Math.sin(a)];
+  });
+  // 별: 꼭짓점 10개 사이에 점을 균등 분배(N은 10의 배수) + 시각 중심 보정
+  function star(spikes, ro, ri) {
+    const V = Array.from({ length: spikes * 2 }, (_, k) => {
+      const a = -Math.PI / 2 + (k / (spikes * 2)) * TAU, r = k % 2 ? ri : ro;
+      return [r * Math.cos(a), r * Math.sin(a)];
+    });
+    const per = N / V.length, dy = ro * (1 - Math.cos(Math.PI / spikes)) / 2;
+    return Array.from({ length: N }, (_, i) => {
+      const k = Math.floor(i / per), t = (i % per) / per, A = V[k], B = V[(k + 1) % V.length];
+      return [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t + dy];
+    });
+  }
+  // 하트: 고전 매개변수 곡선, t=0이 위쪽 오목점 → 시계 방향
+  function heart(s = 6.1) {
+    return Array.from({ length: N }, (_, i) => {
+      const t = (i / N) * TAU;
+      const x = 16 * Math.sin(t) ** 3;
+      const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+      return [x * s, (y - 2.6) * s];
+    });
+  }
+  const SHAPES = [
+    { ko: '원',   en: 'Circle', c: ['#7c5cff', '#22d3ee'], pts: polar(() => R * 0.9) },
+    { ko: '별',   en: 'Star',   c: ['#ffb020', '#ff4f6d'], pts: star(5, R * 1.02, R * 0.45) },
+    { ko: '하트', en: 'Heart',  c: ['#ff3d8b', '#ff9a5a'], pts: heart() },
+    { ko: '꽃',   en: 'Flower', c: ['#10b981', '#3b82f6'], pts: polar(a => R * (0.8 + 0.13 * Math.cos(6 * a + Math.PI))) },
+  ];
+
+  // N개 점 → 닫힌 Catmull-Rom 곡선 → 항상 정확히 N개의 큐빅(C) 세그먼트
+  function toPath(P) {
+    const f = v => v.toFixed(2);
+    let d = `M${f(P[0][0])} ${f(P[0][1])}`;
+    for (let i = 0; i < N; i++) {
+      const p0 = P[(i + N - 1) % N], p1 = P[i], p2 = P[(i + 1) % N], p3 = P[(i + 2) % N];
+      d += `C${f(p1[0] + (p2[0] - p0[0]) / 6)} ${f(p1[1] + (p2[1] - p0[1]) / 6)} `
+         + `${f(p2[0] - (p3[0] - p1[0]) / 6)} ${f(p2[1] - (p3[1] - p1[1]) / 6)} ${f(p2[0])} ${f(p2[1])}`;
+    }
+    return d + 'Z';
+  }
+
+  /* ═══ 재생 제어 ═══════════════════════════════════════════════════════ */
+  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)');
+  const root = document.documentElement;
+  const path = document.getElementById('morph-path');
+  const label = document.getElementById('shape-name');
+  const [ko, en] = label.querySelectorAll('span');
+  const toggle = document.getElementById('toggle');
+  const ease = t => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);       // easeInOutCubic
+
+  let cur = SHAPES[0].pts.map(p => [...p]), from = cur, to = cur;
+  let idx = 0, t0 = 0, raf = 0, timer = 0, paused = false, onScreen = true;
+  const draw = () => path.setAttribute('d', toPath(cur));
+  const canAuto = () => !paused && onScreen && !document.hidden && !REDUCED.matches;
+
+  function go(k, byUser) {
+    idx = (k + SHAPES.length) % SHAPES.length;
+    const s = SHAPES[idx];
+    label.setAttribute('aria-live', byUser ? 'polite' : 'off');               // 자동 순환은 낭독하지 않음
+    ko.textContent = s.ko; en.textContent = s.en;
+    root.style.setProperty('--c1', s.c[0]);
+    root.style.setProperty('--c2', s.c[1]);
+    cancelAnimationFrame(raf); clearTimeout(timer);
+    from = cur.map(p => [...p]); to = s.pts;
+    if (REDUCED.matches) { cur = to.map(p => [...p]); draw(); return; }      // 트윈 없이 즉시
+    label.animate([{ opacity: 0, transform: 'translateY(.25em)' }, { opacity: 1, transform: 'none' }],
+                  { duration: 450, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    t0 = performance.now();
+    raf = requestAnimationFrame(frame);
+  }
+  function frame(now) {
+    const p = Math.min(1, (now - t0) / MORPH_MS), e = ease(p);
+    for (let i = 0; i < N; i++) {
+      cur[i][0] = from[i][0] + (to[i][0] - from[i][0]) * e;
+      cur[i][1] = from[i][1] + (to[i][1] - from[i][1]) * e;
+    }
+    draw();
+    if (p < 1) raf = requestAnimationFrame(frame); else schedule();
+  }
+  function schedule() {
+    clearTimeout(timer);
+    if (canAuto()) timer = setTimeout(() => go(idx + 1, false), HOLD_MS);
+  }
+
+  document.getElementById('next').addEventListener('click', () => go(idx + 1, true));
+  toggle.addEventListener('click', () => {
+    paused = !paused;
+    toggle.setAttribute('aria-pressed', String(paused));
+    toggle.firstElementChild.textContent = paused ? '▶' : 'II';
+    schedule();
+  });
+  new IntersectionObserver(([e]) => { onScreen = e.isIntersecting; schedule(); }).observe(path.ownerSVGElement);
+  document.addEventListener('visibilitychange', schedule);
+  REDUCED.addEventListener('change', schedule);
+  draw();
+  </script>
+</body>
+</html>

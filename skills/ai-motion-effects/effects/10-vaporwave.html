@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>10 · Vaporwave · 베이퍼웨이브</title>
+<!--
+EFFECT: Vaporwave (베이퍼웨이브)
+느낌: 80~90년대 VHS·신스웨이브 앨범 커버 같은 네온 노을 — 몽환적이고 아련한 레트로 퓨처
+잘 맞는 곳: 히어로 배경, 음악·게임·나이트라이프 브랜드, 이벤트/파티 랜딩, 404·이스터에그 페이지, 플레이리스트 커버
+피해야 할 곳: 업무용 대시보드·문서, 진중한 기업·공공 사이트, 긴 본문 배경, 작은 컴포넌트(격자가 너무 작아짐)
+핵심 기법:
+  - 줄무늬 태양: 세로 linear-gradient 원 + mask 2겹(윗부분 통째 + 반복 줄무늬 타일) → mask-position으로 줄무늬가 아래로 흐름
+  - 원근 격자 바닥: perspective 컨테이너 안의 평면을 rotateX(-90deg)로 눕히고 translateY를 칸 하나만큼 무한 반복 → 이음매 없는 전진 (background-position 애니메이션보다 리페인트가 없어 부드러움)
+  - 격자 끝은 평면 자체의 mask로 서서히 사라지게, 수평선엔 핑크 글로우(box-shadow) + 안개 그라디언트
+  - 헤드라인: 넓은 자간 + 시안/핑크 좌우 오프셋 text-shadow(색수차) + 글로우, 스캔라인 오버레이(repeating-linear-gradient)
+조절 포인트:
+  --horizon     수평선 높이 (기본 60vh). 바닥 높이·원근 거리(--persp)가 여기서 파생
+  --persp       원근 거리 — 작을수록 격자가 급하게 소실
+  --cell        격자 한 칸 크기 / --line 격자 선 두께
+  --grid-speed  한 칸이 다가오는 시간 (작을수록 빠름)
+  --sun         태양 지름 / --band 태양 줄무늬 주기
+  --pink --cyan --violet  팔레트
+  .scanlines    불투명도·간격 (1px 선 + 2px 틈)
+성능: 보통 — 격자는 transform만 움직여(컴포지터) 부드럽지만 화면 약 3.7배 크기의 3D 레이어라 GPU 메모리를 씀. 태양 줄무늬는 mask-position 애니메이션이라 태양 영역만 매 프레임 리페인트. JS 없음
+접근성: 장식 요소는 모두 aria-hidden, 의미는 h1/p에만. reduced-motion에서는 격자 전진과 태양 줄무늬 흐름을 멈춘 정지 포스터가 됨. 헤드라인은 짙은 밤하늘 위 흰 글자(대비 15:1 이상)라 네온 그림자가 있어도 읽힘
+이식 메모:
+  - React/Next.js: 순수 CSS라 JSX로 그대로 옮기면 끝(서버 컴포넌트 가능). 섹션 안에 넣을 땐 vh 대신 컨테이너 기준값(px 또는 cqh — container-type:size)으로 --horizon·--persp·--cell을 바꿀 것
+  - Tailwind: mask 2겹·격자 background는 길어서 @layer components의 .vapor-sun / .vapor-grid 클래스로 두는 편이 읽기 쉬움. keyframes는 theme.extend
+  - -webkit-mask와 mask를 둘 다 써야 Safari/구형 Chromium까지 동작
+-->
+<style>
+  :root{
+    --horizon:60vh;                            /* 수평선 = 하늘/바닥 경계 */
+    --floor-h:calc(100vh - var(--horizon));
+    --persp:var(--floor-h);                    /* 원근 거리 */
+    --cell:8vh;                                /* 격자 한 칸 */
+    --line:2px;
+    --grid-speed:.8s;
+    --sun:min(40vmin,420px);
+    --band:calc(var(--sun) * .085);            /* 태양 줄무늬 주기 */
+    --pink:#ff4fd8; --cyan:#35e8ff; --violet:#2a0b52; --night:#12002e;
+    --font:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--night);color:#fff;font-family:var(--font)}
+
+  .demo{
+    position:relative;height:100%;overflow:hidden;isolation:isolate;
+    background:linear-gradient(#0d0026 0%,#2a0a5a 30%,#8a1f8f 47%,#ff5c9d 56%,#ff9f6e 60%);
+  }
+  .stars{
+    position:absolute;inset:0 0 50% 0;opacity:.85;
+    background-image:
+      radial-gradient(1.6px 1.6px at 12% 18%,#fff 50%,transparent 60%),
+      radial-gradient(1.2px 1.2px at 27% 42%,#ffd6f5 50%,transparent 60%),
+      radial-gradient(1.8px 1.8px at 44% 10%,#fff 50%,transparent 60%),
+      radial-gradient(1.2px 1.2px at 63% 30%,#c9f6ff 50%,transparent 60%),
+      radial-gradient(1.6px 1.6px at 79% 14%,#fff 50%,transparent 60%),
+      radial-gradient(1.2px 1.2px at 89% 40%,#ffd6f5 50%,transparent 60%),
+      radial-gradient(1.4px 1.4px at 6% 46%,#fff 50%,transparent 60%),
+      radial-gradient(1.2px 1.2px at 95% 7%,#c9f6ff 50%,transparent 60%);
+  }
+
+  /* ───── 줄무늬 태양 ───── */
+  .sun-wrap{position:absolute;left:50%;top:calc(var(--horizon) - var(--sun) * .72);width:var(--sun);aspect-ratio:1;translate:-50% 0}
+  .sun-wrap::before{ /* 글로우 (마스크 밖) */
+    content:"";position:absolute;inset:-30%;border-radius:50%;
+    background:radial-gradient(closest-side,rgba(255,79,216,.5),rgba(255,120,160,.18) 60%,transparent);
+  }
+  .sun{
+    position:relative;width:100%;height:100%;border-radius:50%;
+    background:linear-gradient(#fff36b 5%,#ffc247 30%,#ff7a6b 55%,#ff3fa4 75%,#c22bd8 100%);
+    /* 1겹: 위 42%는 통째로 보이게 / 2겹: 높이 --band 타일마다 62%만 보이게 = 가로 틈 */
+    -webkit-mask:linear-gradient(#000 0 0) top / 100% 42% no-repeat,linear-gradient(#000 62%,transparent 0) 0 0 / 100% var(--band);
+            mask:linear-gradient(#000 0 0) top / 100% 42% no-repeat,linear-gradient(#000 62%,transparent 0) 0 0 / 100% var(--band);
+    animation:sun-bands 1.6s linear infinite;
+  }
+  @keyframes sun-bands{
+    to{-webkit-mask-position:top,0 var(--band);mask-position:top,0 var(--band)}
+  }
+
+  /* ───── 원근 격자 바닥 ───── */
+  .floor{
+    position:absolute;left:0;right:0;bottom:0;top:var(--horizon);overflow:hidden;
+    perspective:var(--persp);perspective-origin:50% 0;      /* 눈높이 = 수평선 */
+    background:linear-gradient(var(--violet),var(--night) 75%);
+    box-shadow:0 -1px 0 var(--pink),0 -8px 34px rgba(255,79,216,.6);
+  }
+  .grid{
+    /* 바닥 아래 가장자리에서 시작해 화면 안쪽(먼 곳)으로 눕힌 평면 */
+    position:absolute;top:100%;left:-130%;width:360%;height:calc(var(--persp) * 2.6);
+    transform-origin:50% 0;transform:rotateX(-90deg) translateY(0);
+    background:
+      linear-gradient(90deg,var(--cyan) 0 var(--line),rgba(53,232,255,.22) var(--line) calc(var(--line) * 3),transparent 0) calc(50% + var(--cell) / 2) 0 / var(--cell) var(--cell),
+      linear-gradient(var(--pink) 0 var(--line),rgba(255,79,216,.22) var(--line) calc(var(--line) * 3),transparent 0) 0 0 / var(--cell) var(--cell);
+    -webkit-mask-image:linear-gradient(#000 25%,transparent 95%);   /* 먼 쪽(평면 아래쪽)으로 갈수록 사라짐 */
+            mask-image:linear-gradient(#000 25%,transparent 95%);
+    animation:grid-run var(--grid-speed) linear infinite;
+    will-change:transform;
+  }
+  @keyframes grid-run{
+    from{transform:rotateX(-90deg) translateY(0)}
+    to{transform:rotateX(-90deg) translateY(calc(var(--cell) * -1))}   /* 한 칸 = 패턴 주기 → 이음매 없음 */
+  }
+  .floor::after{ /* 수평선 안개 + 아래쪽 그늘 */
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:
+      radial-gradient(70% 55% at 50% 0,rgba(255,79,216,.35),transparent 70%),
+      linear-gradient(rgba(42,11,82,.75),rgba(42,11,82,0) 28%),
+      linear-gradient(transparent 60%,rgba(10,0,30,.5));
+  }
+
+  /* ───── 헤드라인 ───── */
+  .title{position:absolute;left:0;right:0;top:clamp(16px,8vh,90px);padding:0 16px;text-align:center}
+  .eyebrow{margin:0;font-size:clamp(10px,1.6vmin,13px);font-weight:700;letter-spacing:.4em;padding-left:.4em;color:var(--cyan)}
+  .vapor{
+    margin:.35em 0 0;font-size:clamp(24px,8.4vmin,108px);font-weight:800;line-height:1.05;
+    letter-spacing:.3em;padding-left:.3em;color:#fff4fd;     /* padding-left = 마지막 자간 보정 */
+    text-shadow:-.05em 0 rgba(53,232,255,.9),.05em 0 rgba(255,79,216,.9),0 0 .4em rgba(255,79,216,.6);
+  }
+  .sub{margin:.6em 0 0;font-size:clamp(12px,2vmin,18px);letter-spacing:.08em;color:#ffc6ee}
+
+  .scanlines{
+    position:absolute;inset:0;pointer-events:none;mix-blend-mode:multiply;
+    background:repeating-linear-gradient(rgba(10,0,25,.22) 0 1px,transparent 1px 3px);
+    box-shadow:inset 0 0 12vmin rgba(0,0,0,.45);              /* CRT 비네트 */
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .grid,.sun{animation:none}
+  }
+
+  .tag{position:fixed;left:12px;bottom:12px;margin:0;font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff}
+</style>
+</head>
+<body>
+  <main class="demo">
+    <div class="stars" aria-hidden="true"></div>
+    <div class="sun-wrap" aria-hidden="true"><div class="sun"></div></div>
+    <div class="floor" aria-hidden="true"><div class="grid"></div></div>
+    <header class="title">
+      <p class="eyebrow">1986 ✦ NEON DREAMS</p>
+      <h1 class="vapor">VAPORWAVE</h1>
+      <p class="sub">새벽 4시, 텅 빈 쇼핑몰의 노을</p>
+    </header>
+    <div class="scanlines" aria-hidden="true"></div>
+  </main>
+  <p class="tag">10 · Vaporwave</p>
+</body>
+</html>

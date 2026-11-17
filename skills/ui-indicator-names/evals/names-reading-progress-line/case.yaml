@@ -1,0 +1,7 @@
+schema_version: "1.1"
+name: names-reading-progress-line
+expected_outcome: |
+  Names it a scroll progress / reading progress bar (Korean and English), says how it
+  differs from an ordinary loading progress bar, and gives a one-to-two line designer
+  request that states where it sits (top, fixed), how thick and what colour. The whole
+  reply stays as short as the user asked: no tables, headings or extra tips.

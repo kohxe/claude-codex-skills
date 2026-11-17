@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: react-holo-membership-card
+expected_outcome: |
+  Applies the Holographic effect to the existing Next.js + Tailwind MembershipCard:
+  a client component whose card tilts in 3D toward the pointer, with an iridescent
+  rainbow layer (blend mode) that shifts with the pointer and a moving glare. On phones it
+  shimmers with no input at all (idle animation) and also follows drag or device tilt (iOS
+  permission asked in a click handler) without blocking vertical scroll. Member text sits
+  above the foil and glare. prefers-reduced-motion is handled, the animation loop runs only
+  when needed and everything is cleaned up, brand colors and props are kept, no new deps.
+context:
+  scaffold_script: place-files.sh

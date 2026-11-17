@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>19 · Grainy Gradient · 그레이니 그라디언트</title>
+<!--
+EFFECT: Grainy Gradient (그레이니 그라디언트)
+느낌: 노을빛이 천천히 번지는 따뜻한 색면 위에 필름 입자가 얹힌, 아날로그하고 감성적인 질감
+잘 맞는 곳: 히어로 배경, 브랜드·앨범·이벤트 랜딩, 프로필/커버 영역, 대기 화면, 뉴스레터 헤더
+피해야 할 곳: 긴 본문 위(입자가 글자 가독성 저하), 정밀한 데이터 표, 이미 사진이 많은 섹션(질감 중복)
+핵심 기법:
+  - 메시 그라디언트 흉내: 큰 radial-gradient 블롭 5개(가장자리 투명)를 transform 키프레임으로 천천히 드리프트
+  - 필름 그레인: 인라인 SVG feTurbulence(fractalNoise) 를 data URI 배경으로 타일링
+  - mix-blend-mode: overlay(또는 soft-light) + opacity 로 색 위에 입자 합성, steps() 로 느린 그레인 지터
+  - 가운데 은은한 스크림(radial)으로 글자 대비 확보, 버튼은 backdrop-filter 유리 질감
+조절 포인트:
+  --base, --c1 ~ --c5     바탕색 / 블롭 색 (따뜻한 노을 팔레트)
+  --blob                   블롭 크기 (기본 72vmax)
+  --drift                  드리프트 주기 배수 (클수록 느림)
+  --grain-opacity          입자 세기 (.2 ~ .45 권장)
+  --grain-blend            overlay(선명) | soft-light(부드러움)
+  --grain-size             노이즈 타일 크기 (작을수록 입자 미세), SVG 안 baseFrequency 로도 조절
+성능: 보통 — 블롭은 transform 만 애니메이션(컴포지터), 블렌드 레이어 합성 비용은 있음. filter: blur() 대신
+      radial-gradient 투명 끝으로 부드러움을 내 전체 화면 블러 비용을 피함
+접근성: prefers-reduced-motion 이면 블롭 드리프트와 그레인 지터를 멈춘 정지 프레임. 그레인 지터는 초당 약 6회의
+        미세 위치 이동일 뿐 밝기 깜빡임이 아님. 글자 뒤 스크림 + text-shadow 로 밝은 블롭 위에서도 대비 유지.
+이식 메모:
+  - React: 순수 CSS라 그대로 옮기면 됨. 블롭은 배열 map 으로 style={{ '--c': ..., '--x': ... }} 전달
+  - Tailwind: 블롭은 absolute rounded-full + bg-[radial-gradient(closest-side,var(--c),transparent)],
+    그레인은 bg-[url('data:image/svg+xml,...')] mix-blend-overlay opacity-30 pointer-events-none
+  - Next.js: 서버 컴포넌트 가능(JS 없음). 그레인 레이어는 layout 최상단에 한 번만 두면 페이지 전체에 적용
+  - 정적인 결과가 필요하면 블롭 애니메이션만 빼고 그레인 레이어는 유지해도 충분히 고급스러움
+-->
+<style>
+  :root{
+    --base:#24102f;
+    --c1:#ff7a59;   /* 코랄 */
+    --c2:#ffb45e;   /* 앰버 */
+    --c3:#c2408f;   /* 마젠타 */
+    --c4:#6a4bd1;   /* 바이올렛 */
+    --c5:#ff9fb2;   /* 피치 핑크 */
+    --blob:72vmax;
+    --drift:1;
+    --grain-opacity:.32;
+    --grain-blend:overlay;
+    --grain-size:180px;
+    --text:#fff8f2;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--base);color:var(--text);overflow:hidden;
+    font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+
+  /* ───────── 핵심 1: 드리프트하는 블롭 (메시 그라디언트 흉내) ───────── */
+  .mesh{position:fixed;inset:0;overflow:hidden;z-index:0}
+  .blob{
+    position:absolute;width:var(--size,var(--blob));aspect-ratio:1;border-radius:50%;
+    left:calc(var(--x) - var(--size,var(--blob)) / 2);top:calc(var(--y) - var(--size,var(--blob)) / 2);
+    background:radial-gradient(closest-side,var(--c) 0%,var(--c) 18%,transparent 100%);
+    opacity:var(--o,.9);
+    animation-name:drift;animation-duration:calc(var(--t) * var(--drift));
+    animation-timing-function:ease-in-out;animation-iteration-count:infinite;
+    animation-delay:calc(var(--t) * var(--drift) * -.37);   /* 음수 지연 → 처음부터 제각각 위치 */
+  }
+  @keyframes drift{
+    0%,100%{transform:translate(0,0) scale(1)}
+    33%{transform:translate(var(--dx),calc(var(--dy) * -.6)) scale(1.12)}
+    66%{transform:translate(calc(var(--dx) * -.7),var(--dy)) scale(.92)}
+  }
+
+  /* ───────── 핵심 2: 필름 그레인 (feTurbulence data URI + blend) ───────── */
+  .grain{
+    position:fixed;inset:-50%;z-index:1;pointer-events:none;   /* 200% 크기 → 지터해도 빈틈 없음 */
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size:var(--grain-size);
+    opacity:var(--grain-opacity);mix-blend-mode:var(--grain-blend);
+    animation:grain .9s steps(1,end) infinite;                 /* 초당 ~6회 위치만 점프 */
+  }
+  @keyframes grain{
+    0%,100%{transform:translate(0,0)}
+    20%{transform:translate(-3%,2%)}
+    40%{transform:translate(2%,-4%)}
+    60%{transform:translate(-1%,-2%)}
+    80%{transform:translate(4%,1%)}
+  }
+
+  /* 콘텐츠 */
+  .demo{min-height:100%;display:grid;place-items:center;padding:clamp(16px,5vmin,56px)}
+  .copy{position:relative;z-index:2;max-width:36rem;text-align:center}
+  .copy::before{ /* 은은한 스크림: 밝은 블롭이 지나가도 글자 대비 유지 */
+    content:"";position:absolute;inset:-35% -25%;z-index:-1;pointer-events:none;
+    background:radial-gradient(closest-side,rgba(36,12,40,.42),transparent);
+  }
+  .eyebrow{display:inline-block;margin:0 0 clamp(10px,2vmin,18px);padding:6px 12px;border-radius:999px;
+    font-size:clamp(10px,1.6vmin,12px);font-weight:700;letter-spacing:.16em;
+    background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22)}
+  h1{margin:0;font-size:clamp(28px,8.4vmin,84px);font-weight:800;line-height:1.08;letter-spacing:-.035em;
+    text-shadow:0 2px 20px rgba(0,0,0,.22)}
+  .lede{margin:clamp(10px,2vmin,18px) auto clamp(16px,3.4vmin,30px);max-width:30ch;
+    font-size:clamp(13px,2.2vmin,18px);line-height:1.55;color:rgba(255,244,236,.9);text-shadow:0 1px 10px rgba(0,0,0,.25)}
+
+  /* 유리 버튼 */
+  .glass{
+    display:inline-flex;align-items:center;gap:10px;padding:clamp(10px,1.8vmin,14px) clamp(18px,3vmin,28px);
+    border-radius:999px;border:1px solid rgba(255,255,255,.38);background:rgba(255,255,255,.14);color:#fff;
+    font:inherit;font-size:clamp(13px,2vmin,16px);font-weight:700;cursor:pointer;
+    -webkit-backdrop-filter:blur(12px) saturate(140%);backdrop-filter:blur(12px) saturate(140%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 8px 20px rgba(0,0,0,.18);
+    transition:background-color .25s ease,transform .25s ease;
+  }
+  .glass span{transition:transform .25s ease}
+  .glass:hover{background:rgba(255,255,255,.24);transform:translateY(-2px)}
+  .glass:hover span{transform:translateX(3px)}
+  .glass:focus-visible{outline:2px solid #fff;outline-offset:3px}
+
+  @media (prefers-reduced-motion:reduce){
+    .blob,.grain{animation:none}
+    .glass,.glass span{transition:none}
+  }
+
+  .tag{position:fixed;left:12px;bottom:12px;z-index:10;margin:0;font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;}
+</style>
+</head>
+<body>
+  <main class="demo">
+    <div class="mesh" aria-hidden="true">
+      <!-- --x/--y: 중심 위치, --dx/--dy: 드리프트 폭, --t: 주기 -->
+      <span class="blob" style="--c:var(--c3);--x:12%;--y:8%;--dx:10vmax;--dy:7vmax;--t:23s"></span>
+      <span class="blob" style="--c:var(--c2);--x:92%;--y:6%;--dx:-9vmax;--dy:8vmax;--t:27s"></span>
+      <span class="blob" style="--c:var(--c4);--x:88%;--y:96%;--dx:-11vmax;--dy:-6vmax;--t:31s"></span>
+      <span class="blob" style="--c:var(--c1);--x:14%;--y:92%;--dx:9vmax;--dy:-8vmax;--t:25s"></span>
+      <span class="blob" style="--c:var(--c5);--x:50%;--y:46%;--size:48vmax;--o:.55;--dx:7vmax;--dy:5vmax;--t:19s"></span>
+    </div>
+    <div class="grain" aria-hidden="true"></div>
+
+    <section class="copy">
+      <p class="eyebrow">GOLDEN HOUR · 2026</p>
+      <h1>노을이 번지는 시간</h1>
+      <p class="lede">부드럽게 흐르는 색 위에 필름 입자를 얹어 따뜻한 질감을 더했어요.</p>
+      <button class="glass" type="button">지금 둘러보기 <span aria-hidden="true">→</span></button>
+    </section>
+  </main>
+  <p class="tag">19 · Grainy Gradient</p>
+</body>
+</html>

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>05 · Isometric · 아이소메트릭</title>
+<!--
+EFFECT: Isometric (아이소메트릭)
+느낌: 미니어처 모형을 비스듬히 내려다보는 듯한 정돈된 입체감 — 구조와 계층이 한눈에 들어옴
+잘 맞는 곳: 기술 스택·아키텍처 설명, 기능 레이어 소개, 요금제 단계, 온보딩 단계, 랜딩의 '어떻게 동작하나요' 섹션
+피해야 할 곳: 긴 텍스트(기울어진 글자는 읽기 힘듦), 요소가 많은 좁은 모바일 화면, 정확한 수치 비교 차트
+핵심 기법:
+  - 무대: transform: rotateX(55deg) rotateZ(-45deg) + transform-style: preserve-3d (perspective 없음 → 평행 투영)
+  - 상자: 윗면은 요소 자체, 옆면 2개는 ::before(rotateX(-90deg)) / ::after(rotateY(-90deg)) 를 모서리에 매달아 접어 내림
+  - 면 음영은 color-mix(in oklab, 기본색, 남색 18% / 34%) 로 자동 생성 → 색 하나만 정하면 됨
+  - 상태 스위치 --on(0/1) 하나로 들림(translateZ)·그림자 블러·투명도를 calc 로 함께 전환
+조절 포인트:
+  - --s: 레이어 한 변, --t: 두께, --gap: 층 간격(z), --lift: 들림 높이
+  - --tilt: rotateX (54.74deg = 정등각, 60deg = 2:1 픽셀아트 느낌), --spin: rotateZ
+  - 레이어별 --i(층 번호) / --c(면 색) / --fg(글자·포커스 링 색) — style 속성으로 지정
+  - --ease: 들림 이징(살짝 오버슈트), --bob: 전체 둥실 주기
+성능: 가벼움 — 요소 10여 개의 CSS 3D transform. 비용은 그림자 filter: blur 정도 → 레이어가 많으면 blur 대신 opacity 만 바꿀 것
+접근성: prefers-reduced-motion 이면 둥실 애니메이션을 끄고 들림 전환을 즉시 처리. 각 레이어 윗면은 <button aria-pressed>, 선택 결과는 aria-live 캡션으로 읽어 줌. 기울어진 면에는 짧은 라벨만
+이식 메모:
+  - 3D 체인 중간 요소에 overflow:hidden / opacity<1 / filter 를 주면 preserve-3d 가 평면화됨 (그림자처럼 자식 없는 말단에만 filter)
+  - <button> 을 3D 컨테이너로 쓰지 말 것(Firefox 에서 자식이 평면화) → 윗면 안에 납작한 button 을 넣는 구조 유지
+  - React: 레이어 배열을 map 으로 렌더, style={{'--i': i, '--c': color}}. 선택 state 로 is-active 클래스
+  - Tailwind: [transform:rotateX(55deg)_rotateZ(-45deg)] [transform-style:preserve-3d] 임의값, 옆면은 before:/after: 변형자
+-->
+<style>
+  :root{
+    --bg:#edf0f7; --ink:#1d2440;
+    --s:clamp(110px,34vmin,230px);   /* 레이어 한 변 */
+    --t:calc(var(--s) * .09);        /* 판 두께 */
+    --gap:calc(var(--s) * .28);      /* 층 사이 높이 */
+    --lift:calc(var(--s) * .16);     /* hover·선택 시 들리는 높이 */
+    --tilt:55deg;                    /* rotateX */
+    --spin:-45deg;                   /* rotateZ */
+    --ease:cubic-bezier(.2,.9,.25,1.15);
+    --bob:5s;
+  }
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+  .demo{position:relative;height:100%;display:grid;place-items:center;overflow:hidden;background:radial-gradient(80% 70% at 50% 58%,#fff,var(--bg) 70%)}
+  .hud{position:absolute;top:clamp(12px,4vmin,36px);left:0;right:0;padding:0 16px;text-align:center}
+  .eyebrow{margin:0;font-weight:800;font-size:clamp(11px,1.9vmin,12px);letter-spacing:.24em;color:#5d6788}
+  .caption{margin:.35em 0 0;min-height:1.3em;font-weight:700;font-size:clamp(13px,2.6vmin,17px)}
+
+  /* ── ① 등각 무대: 평면을 눕혀 45° 돌림. 높이(z)가 화면 위쪽으로 보임 ── */
+  .scene{translate:0 calc(var(--s) * .3);animation:bob var(--bob) ease-in-out infinite}
+  @keyframes bob{50%{transform:translateY(calc(var(--s) * -.035))}}
+  .iso{position:relative;width:var(--s);height:var(--s);transform:rotateX(var(--tilt)) rotateZ(var(--spin));transform-style:preserve-3d}
+
+  /* ── ② 상자 = 윗면(요소) + 앞-오른쪽 면(::before) + 앞-왼쪽 면(::after) ── */
+  .box{position:absolute;inset:0;background:var(--c);transform-style:preserve-3d;box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+  .box::before,.box::after{content:"";position:absolute}
+  .box::before{left:0;top:100%;width:100%;height:var(--t);transform-origin:top;transform:rotateX(-90deg);background:color-mix(in oklab,var(--c),#0b1030 34%)}
+  .box::after{right:100%;top:0;width:var(--t);height:100%;transform-origin:right;transform:rotateY(-90deg);background:color-mix(in oklab,var(--c),#0b1030 18%)}
+  .floor{--c:#fbfcff;inset:calc(var(--s) * -.26);pointer-events:none;
+    background-image:linear-gradient(rgba(36,52,95,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(36,52,95,.08) 1px,transparent 1px);
+    background-size:calc(var(--s) * .13) calc(var(--s) * .13)}
+
+  /* ── ③ 층 쌓기 + 들림. --on 하나로 상자 높이·그림자를 같이 전환 ── */
+  .layer{--on:0;position:absolute;inset:0;transform:translateZ(calc(var(--i) * var(--gap)));transform-style:preserve-3d;cursor:pointer}
+  .layer:hover,.layer.is-active{--on:1}
+  .layer:has(.face:focus-visible){--on:1}   /* 키보드 포커스도 들림 (별도 규칙: :has 미지원 시 위 규칙 보호) */
+  .layer .box{transform:translateZ(calc(var(--on) * var(--lift)));transition:transform .55s var(--ease)}
+  .shadow{position:absolute;inset:4%;border-radius:8%;background:rgba(22,30,64,.38);pointer-events:none;
+    transform:translateZ(calc(1px - var(--gap))) scale(calc(1 + var(--on) * .06));   /* 바로 아래 면 위에 깔림 */
+    filter:blur(calc(var(--s) * (.025 + var(--on) * .045)));opacity:calc(.45 + var(--on) * .4);
+    transition:transform .55s var(--ease),filter .55s ease,opacity .55s ease}
+  .face{position:absolute;inset:0;margin:0;padding:0;border:0;transform:translateZ(1px);cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.2em;
+    background:linear-gradient(135deg,rgba(255,255,255,.14),transparent 45%);color:var(--fg);
+    font:inherit;font-weight:800;font-size:clamp(13px,3.4vmin,20px);letter-spacing:.02em}
+  .face small{font-size:max(11px,.56em);font-weight:700;letter-spacing:.2em;text-transform:uppercase;opacity:.92}
+  .face:focus-visible{outline:3px solid var(--fg);outline-offset:-8px}
+
+  @media (prefers-reduced-motion: reduce){
+    .scene{animation:none}
+    .layer .box,.shadow{transition-duration:.01ms}
+  }
+
+  .tag{position:fixed;left:12px;bottom:12px;margin:0;z-index:10;font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff}
+</style>
+</head>
+<body>
+  <main class="demo">
+    <header class="hud">
+      <p class="eyebrow">ISOMETRIC STACK</p>
+      <p class="caption" aria-live="polite">레이어를 눌러 보세요</p>
+    </header>
+    <div class="scene">
+      <div class="iso">
+        <div class="box floor" aria-hidden="true"></div>
+        <div class="layer" style="--i:1;--c:#24345f;--fg:#ffffff" data-info="데이터 — PostgreSQL · Redis 캐시">
+          <span class="shadow"></span>
+          <div class="box"><button class="face" type="button" aria-pressed="false">데이터<small>Data</small></button></div>
+        </div>
+        <div class="layer" style="--i:2;--c:#5b3ee8;--fg:#ffffff" data-info="로직 — API · 인증 · 작업 큐">
+          <span class="shadow"></span>
+          <div class="box"><button class="face" type="button" aria-pressed="false">로직<small>Logic</small></button></div>
+        </div>
+        <div class="layer" style="--i:3;--c:#ffc53d;--fg:#2a2140" data-info="화면 — 웹 · 모바일 앱">
+          <span class="shadow"></span>
+          <div class="box"><button class="face" type="button" aria-pressed="false">화면<small>Interface</small></button></div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <p class="tag">05 · Isometric</p>
+
+  <script>
+  /* 레이어 선택: is-active 로 들림 고정 + aria-pressed + 캡션 갱신 (모양은 CSS 담당) */
+  const caption = document.querySelector('.caption');
+  const layers = [...document.querySelectorAll('.layer')];
+  layers.forEach(layer => layer.addEventListener('click', () => {
+    const on = !layer.classList.contains('is-active');
+    layers.forEach(l => {
+      const active = on && l === layer;
+      l.classList.toggle('is-active', active);
+      l.querySelector('.face').setAttribute('aria-pressed', String(active));
+    });
+    caption.textContent = on ? layer.dataset.info : '레이어를 눌러 보세요';
+  }));
+  </script>
+</body>
+</html>

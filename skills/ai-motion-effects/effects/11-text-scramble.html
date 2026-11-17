@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>11 · Text Scramble · 텍스트 스크램블</title>
+<!--
+EFFECT: Text Scramble (텍스트 스크램블)
+느낌: 암호가 풀리듯 무작위 기호가 왼쪽부터 진짜 글자로 맞춰지는 — 테크·해커·SF 무드
+잘 맞는 곳: 히어로 헤드라인, 내비게이션·버튼 라벨 호버, 로딩/상태 메시지, 포트폴리오 섹션 제목
+피해야 할 곳: 긴 본문, 가격·수치처럼 바로 읽어야 하는 데이터, 폼 라벨·에러 메시지
+핵심 기법:
+  - 글자마다 랜덤 start/end 프레임을 가진 큐(queue) + requestAnimationFrame → 좌→우로 해독
+  - 시간 기반 프레임(FRAME_MS) — 120Hz 화면에서도 같은 속도
+  - 목표 글자 종류에 맞춘 글리프 세트 자동 선택(라틴 → 기호, 한글 → 한글 음절/자모) → 글자 폭 흔들림 최소화
+  - 모든 문구를 같은 grid 칸에 숨겨 쌓는 sizer stack + monospace/tabular-nums → 레이아웃 점프 없음
+조절 포인트:
+  - SYMBOLS / HANGUL: 스크램블 글리프 집합 (new TextScramble(el, { chars, hangul })로 교체 가능)
+  - stagger: 글자당 시작 지연(프레임) — 클수록 좌→우 흐름이 또렷
+  - spread / duration: 시작 시점 랜덤 폭 / 글자당 스크램블 길이(프레임)
+  - flicker: 프레임마다 글리프가 바뀔 확률(0–1)
+  - PHRASES / HOLD_MS: 순환 문구 / 문구 유지 시간
+  - --accent: 해독 중 글리프·커서 색, --mono: 고정폭 폰트 스택
+성능: 가벼움 — 수십 글자 innerHTML 갱신뿐이고 해독이 끝나면 rAF가 멈춤. 탭 숨김·화면 밖이면 순환 정지
+접근성: prefers-reduced-motion이면 스크램블 없이 즉시 교체 + 순환 정지(첫 문구 고정), 일시정지 버튼도 숨김.
+        스크린리더는 sr-only 실제 문장(aria-live="polite")과 버튼 aria-label만 읽고 스크램블 레이어는 aria-hidden.
+        자동 순환에는 일시정지 버튼 제공(WCAG 2.2.2). 대비: #eef3ea on #07090c ≈ 17:1
+이식 메모:
+  - React: useRef로 span을 잡고 useEffect에서 new TextScramble → cleanup에서 fx.cancel()·clearTimeout·observer.disconnect()
+  - 스크램블은 React가 렌더하지 않는 별도 span(aria-hidden)에 쓰기 — 같은 노드를 state로도 렌더하면 충돌
+  - Next.js: 'use client' 컴포넌트, SSR엔 최종 텍스트를 그대로 렌더(하이드레이션 불일치 방지)
+  - Tailwind: font-mono tabular-nums, sizer stack은 grid + [grid-area:1/1] + invisible
+-->
+<style>
+  /* ── 토큰 ─────────────────────────────────────────────── */
+  :root{
+    --bg:#07090c; --fg:#eef3ea; --muted:#8d9a8f; --accent:#c6ff3d;
+    --line:rgba(198,255,61,.2);
+    --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,"Apple SD Gothic Neo","Malgun Gothic",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  }
+  html,body{margin:0;height:100%}
+  body{
+    display:grid;place-items:center;overflow:hidden;color:var(--fg);font-family:var(--sans);
+    background:
+      repeating-linear-gradient(0deg,rgba(255,255,255,.028) 0 1px,transparent 1px 4px), /* 스캔라인 */
+      radial-gradient(70% 60% at 50% 30%,#152312 0%,transparent 70%),
+      var(--bg);
+  }
+  .demo{
+    box-sizing:border-box;width:min(90vw,48rem);padding:clamp(16px,4.5vmin,44px);
+    border:1px solid var(--line);border-radius:clamp(12px,2.2vmin,20px);
+    background:rgba(8,12,9,.75);box-shadow:0 30px 60px -30px rgba(0,0,0,.8);
+  }
+  .bar{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    font:600 clamp(10px,2.4vmin,12px)/1 var(--mono);letter-spacing:.14em;color:var(--muted)}
+  .dot{display:inline-block;width:.6em;height:.6em;margin-right:.7em;border-radius:50%;
+    background:var(--accent)}
+  @keyframes blink{50%{opacity:0}}
+
+  /* ── 효과 핵심 1: sizer stack — 모든 문구를 같은 칸에 숨겨 쌓아 최대 크기를 미리 확보 ── */
+  .headline{margin:clamp(14px,3.6vmin,30px) 0 clamp(10px,2.6vmin,20px);
+    font:700 clamp(22px,6.2vmin,56px)/1.12 var(--mono);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .stack{display:grid}
+  .stack>*{grid-area:1/1}
+  .sizer{visibility:hidden}
+  .stack>*::after{content:"_";color:var(--accent)}            /* 커서 — sizer에도 넣어 폭을 맞춤 */
+  .live::after{animation:blink 1s steps(1,end) infinite}
+
+  /* ── 효과 핵심 2: 해독 중인 글리프 ── */
+  .glyph{color:var(--accent);opacity:.7}
+
+  .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .hint{margin:0 0 clamp(12px,2.8vmin,20px);font-size:clamp(11px,2.6vmin,14px);color:var(--muted)}
+  .nav{display:flex;flex-wrap:wrap;gap:8px}
+  .nav button,.pause{
+    font:600 clamp(11px,2.6vmin,13px)/1 var(--mono);letter-spacing:.1em;color:var(--fg);
+    background:transparent;border:1px solid rgba(238,243,234,.24);border-radius:999px;
+    padding:.85em 1.25em;cursor:pointer;transition:color .2s,border-color .2s,background-color .2s}
+  .nav button:hover,.pause:hover{color:var(--accent);border-color:var(--accent)}
+  .nav .primary{background:var(--accent);border-color:var(--accent);color:#0b1004}
+  .nav .primary:hover{background:#dcff8a;color:#0b1004}
+  .pause{padding:.5em .8em;font-size:11px;letter-spacing:0}
+  :is(.nav button,.pause):focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+  .tag{position:fixed;left:12px;bottom:12px;z-index:10;margin:0;font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;}
+
+  @media (prefers-reduced-motion:reduce){
+    .dot,.live::after{animation:none}
+    .nav button,.pause{transition:none}
+    .pause{display:none}                       /* 순환 자체가 멈추므로 불필요 */
+  }
+</style>
+</head>
+<body>
+  <main class="demo">
+    <div class="bar">
+      <span><span class="dot" aria-hidden="true"></span>INCOMING · 신호 수신</span>
+      <button class="pause" type="button" aria-pressed="false" aria-label="헤드라인 순환 일시정지"><span aria-hidden="true">II</span></button>
+    </div>
+
+    <!-- 스크린리더: sr-only 실제 문장(aria-live) / 화면: aria-hidden 스크램블 레이어 -->
+    <h1 class="headline">
+      <span class="sr-only" id="hl-sr" aria-live="polite">HELLO, WORLD</span>
+      <span class="stack" aria-hidden="true"><span class="live">HELLO, WORLD</span></span>
+    </h1>
+
+    <p class="hint">버튼에 마우스를 올리거나 Tab으로 포커스해 보세요</p>
+    <nav class="nav" aria-label="데모 메뉴">
+      <button type="button" aria-label="Work"><span class="label" aria-hidden="true">WORK</span></button>
+      <button type="button" aria-label="About"><span class="label" aria-hidden="true">ABOUT</span></button>
+      <button type="button" class="primary" aria-label="연락하기"><span class="label" aria-hidden="true">연락하기</span></button>
+    </nav>
+  </main>
+  <p class="tag">11 · Text Scramble</p>
+
+  <script>
+  /* ═══ TextScramble — 이 블록만 복사하면 어디서든 사용 ═══════════════════
+     const fx = new TextScramble(el, options);  await fx.setText('다음 문장'); */
+  const REDUCED  = matchMedia('(prefers-reduced-motion: reduce)');
+  const SYMBOLS  = '!<>-_\\/[]{}—=+*^?#';                                   // 라틴용 기호
+  const HANGUL   = 'ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ가냐더려모뵤수유즈치캬터퍼혀흐';     // 한글용 (전각 폭 동일)
+  const FRAME_MS = 1000 / 60;                                                // 시간 기반 프레임
+  const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const isHangul = c => /[ᄀ-ᇿ㄰-㆏가-힣]/.test(c);
+
+  class TextScramble {
+    constructor(el, opts = {}) {
+      this.el = el;
+      this.opt = { chars: SYMBOLS, hangul: HANGUL, stagger: 2, spread: 10, duration: 16, flicker: 0.3, ...opts };
+      this.text = el.textContent;
+      this.queue = []; this.raf = 0; this.resolve = null;
+      this.tick = this.tick.bind(this);
+    }
+    pick(target) {                               // 목표 글자와 같은 종류의 글리프 → 폭 유지
+      const set = isHangul(target) ? this.opt.hangul : this.opt.chars;
+      return set[Math.floor(Math.random() * set.length)];
+    }
+    setText(next) {
+      this.cancel();
+      const from = Array.from(this.text), to = Array.from(next), o = this.opt;
+      this.text = next;
+      if (REDUCED.matches) { this.el.textContent = next; return Promise.resolve(); }
+      this.queue = Array.from({ length: Math.max(from.length, to.length) }, (_, i) => {
+        const start = i * o.stagger + Math.floor(Math.random() * o.spread);        // 좌→우 + 랜덤
+        const end = start + Math.floor(o.duration * (0.6 + Math.random() * 0.8));
+        return { from: from[i] || '', to: to[i] || '', start, end, glyph: '' };
+      });
+      this.t0 = performance.now();
+      return new Promise(res => { this.resolve = res; this.tick(this.t0); });
+    }
+    tick(now) {
+      const f = (now - this.t0) / FRAME_MS;
+      let html = '', settled = 0;
+      for (const q of this.queue) {
+        if (f >= q.end) { html += esc(q.to); settled++; }
+        else if (f < q.start) html += esc(q.from);
+        else if (/\s/.test(q.to)) html += q.to;                 // 공백은 유지 → 단어 모양이 보임
+        else {
+          if (!q.glyph || Math.random() < this.opt.flicker) q.glyph = this.pick(q.to || q.from);
+          html += `<span class="glyph">${esc(q.glyph)}</span>`;
+        }
+      }
+      this.el.innerHTML = html;
+      if (settled < this.queue.length) this.raf = requestAnimationFrame(this.tick);
+      else this.finish();
+    }
+    finish() { const r = this.resolve; this.resolve = null; if (r) r(); }
+    cancel() {                                     // 언마운트·중단 시 호출 → 최종 텍스트로 정리
+      cancelAnimationFrame(this.raf);
+      if (this.resolve) { this.el.textContent = this.text; this.finish(); }
+    }
+  }
+
+  /* ═══ 데모 1: 순환 헤드라인 ═══════════════════════════════════════════ */
+  const PHRASES = ['HELLO, WORLD', '의미를 해독하는 중', 'DECODE THE NOISE', '메시지 도착 완료'];
+  const HOLD_MS = 2600;
+  const live = document.querySelector('.live');
+  const sr = document.getElementById('hl-sr');
+  for (const p of PHRASES) {                       // sizer: 가장 큰 문구만큼 자리를 미리 차지
+    const s = document.createElement('span');
+    s.className = 'sizer'; s.textContent = p;
+    live.before(s);
+  }
+  const headline = new TextScramble(live);
+  let index = 0, timer = 0, paused = false, onScreen = true;
+  const canRun = () => !paused && onScreen && !document.hidden && !REDUCED.matches;
+
+  function schedule() { clearTimeout(timer); if (canRun()) timer = setTimeout(advance, HOLD_MS); }
+  async function advance() {
+    index = (index + 1) % PHRASES.length;
+    sr.textContent = PHRASES[index];               // 스크린리더엔 실제 문장만
+    await headline.setText(PHRASES[index]);
+    schedule();
+  }
+  new IntersectionObserver(([e]) => { onScreen = e.isIntersecting; schedule(); }).observe(live);
+  document.addEventListener('visibilitychange', schedule);
+  REDUCED.addEventListener('change', schedule);
+
+  const pauseBtn = document.querySelector('.pause');
+  pauseBtn.addEventListener('click', () => {
+    paused = !paused;
+    pauseBtn.setAttribute('aria-pressed', String(paused));
+    pauseBtn.firstElementChild.textContent = paused ? '▶' : 'II';
+    schedule();
+  });
+
+  /* ═══ 데모 2: 호버·키보드 포커스 시 버튼 라벨 스크램블 ═════════════════ */
+  document.querySelectorAll('.nav button').forEach(btn => {
+    const fx = new TextScramble(btn.querySelector('.label'), { stagger: 1, spread: 4, duration: 10 });
+    const run = () => fx.setText(fx.text);
+    btn.addEventListener('pointerenter', run);
+    btn.addEventListener('focus', () => { if (btn.matches(':focus-visible')) run(); });
+  });
+  </script>
+</body>
+</html>

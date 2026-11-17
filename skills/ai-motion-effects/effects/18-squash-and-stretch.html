@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>18 · Squash and Stretch · 스쿼시 앤 스트레치</title>
+<!--
+EFFECT: Squash and Stretch (스쿼시 앤 스트레치)
+느낌: 말랑하고 탱글한 물성 — 장난스럽고 친근하며, 누를 때 손맛이 느껴짐
+잘 맞는 곳: 좋아요·담기 같은 CTA 버튼, 토글 스위치, 알림 배지 등장, 로딩 인디케이터, 캐릭터·마스코트, 온보딩
+피해야 할 곳: 금융·의료처럼 신뢰가 중요한 진지한 화면, 텍스트가 많은 요소(글자가 찌그러져 읽기 어려움), 데이터 표
+핵심 기법:
+  - 애니메이션 12원칙의 Squash & Stretch: 낙하 중 scaleY>1·scaleX<1(늘어남), 충돌 순간 scaleX>1·scaleY<1(찌그러짐)
+  - 부피 보존: scaleX × scaleY ≈ 1, transform-origin 을 바닥(50% 100%)에 둬 지면에 붙은 채 찌그러짐
+  - 위치(translateY)와 형태(scale)를 별도 요소로 분리 + 키프레임별 animation-timing-function 으로 중력 가속/감속
+  - 버튼: 아주 작은 JS 스프링(감쇠 진동)으로 누르면 눌리고 놓으면 출렁이며 복귀, 스위치 노브는 이동 방향으로 늘어남
+조절 포인트:
+  --ball / --drop / --dur          공 크기 / 낙하 높이 / 한 번 튀는 주기
+  --stretch-x, --stretch-y         늘어날 때 비율 (곱이 ≈ 1 이 되게)
+  --squash-x, --squash-y           찌그러질 때 비율 (곱이 ≈ 1 이 되게)
+  STIFFNESS / DAMPING / PRESS (JS) 스프링 강도 / 감쇠(작을수록 더 출렁) / 눌렀을 때 찌그러짐 양
+성능: 가벼움 — 공은 transform 만 쓰는 CSS 애니메이션(컴포지터), 스프링 rAF 는 버튼이 움직일 때만 잠깐 실행
+접근성: prefers-reduced-motion 이면 공은 공중에 멈춘 정지 프레임, 버튼·스위치는 스프링·늘어남 없이 상태만 즉시 바뀜.
+        버튼은 aria-pressed, 스위치는 role="switch" + aria-checked 로 상태 전달. 짙은 버튼 위 밝은 글자로 대비 확보.
+이식 메모:
+  - React: 스프링은 useRef 로 상태(q, v)와 rAF id 보관, useEffect cleanup 에서 cancelAnimationFrame. 렌더 대신 ref.style.transform 직접 갱신
+  - Framer Motion 이 있으면 whileTap={{ scaleX: 1.15, scaleY: 0.86 }} + transition={{ type: 'spring', stiffness: 520, damping: 14 }} 로 대체 가능
+  - Tailwind: 공 키프레임은 theme.extend.keyframes 에 등록, origin-bottom, 스위치 이동은 translate-x-[...] + [scale:...]
+  - Next.js: 스프링/토글 로직이 있는 버튼만 'use client'
+-->
+<style>
+  :root{
+    --bg:#fff4e8;
+    --ink:#2b1d14;
+    --muted:#86695a;
+    --hot:#ff5a3c;
+    --ball:clamp(36px,10vmin,76px);    /* 공 지름 */
+    --drop:clamp(64px,22vmin,190px);   /* 낙하 높이 */
+    --dur:1.15s;                        /* 한 번 튀는 주기 */
+    --stretch-x:.86; --stretch-y:1.16;  /* 늘어남 (곱 ≈ 1) */
+    --squash-x:1.3;  --squash-y:.77;    /* 찌그러짐 (곱 ≈ 1) */
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(90% 70% at 50% 30%,#fffaf3 0%,var(--bg) 70%) var(--bg);color:var(--ink);overflow:hidden;
+    font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  }
+  .demo{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:clamp(14px,3.4vmin,32px);padding:clamp(16px,4vmin,48px);text-align:center}
+
+  /* ───────── 핵심 1: 튀는 공 (위치 = .drop, 형태 = .ball 로 분리) ───────── */
+  .stage{position:relative;width:min(100%,28rem);height:calc(var(--drop) + var(--ball) + 14px)}
+  .stage::after{ /* 바닥선 */
+    content:"";position:absolute;left:10%;right:10%;top:calc(var(--drop) + var(--ball));height:2px;
+    background:linear-gradient(90deg,transparent,rgba(43,29,20,.16),transparent);
+  }
+  .drop{position:absolute;top:0;left:calc(50% - var(--ball) / 2);width:var(--ball);height:var(--ball);
+    animation:drop var(--dur) infinite}
+  .ball{width:100%;height:100%;border-radius:50%;transform-origin:50% 100%;   /* 바닥 기준으로 찌그러짐 */
+    background:radial-gradient(circle at 34% 28%,#fff1df 0 7%,#ffb36b 26%,var(--hot) 62%,#c9361f 100%);
+    animation:squash var(--dur) infinite}
+  .shadow{position:absolute;left:calc(50% - var(--ball) * .55);top:calc(var(--drop) + var(--ball) * .91);
+    width:calc(var(--ball) * 1.1);height:calc(var(--ball) * .18);border-radius:50%;
+    background:radial-gradient(closest-side,rgba(70,30,10,.6),transparent);animation:shadow var(--dur) infinite}
+
+  @keyframes drop{   /* 정점 → 가속 낙하 → 접지 유지 → 감속 상승 */
+    0%  {transform:translateY(0);animation-timing-function:cubic-bezier(.55,0,.9,.45)}
+    45% {transform:translateY(var(--drop));animation-timing-function:linear}
+    53% {transform:translateY(var(--drop));animation-timing-function:cubic-bezier(.1,.55,.45,1)}
+    100%{transform:translateY(0)}
+  }
+  @keyframes squash{
+    0%     {transform:scale(1,1);animation-timing-function:ease-in}
+    42%,45%{transform:scale(var(--stretch-x),var(--stretch-y))}   /* 떨어지는 중: 늘어남 */
+    47%,51%{transform:scale(var(--squash-x),var(--squash-y))}     /* 닿는 순간: 찌그러짐 */
+    57%    {transform:scale(.9,1.11);animation-timing-function:ease-out} /* 튀어오름: 다시 늘어남 */
+    78%,100%{transform:scale(1,1)}
+  }
+  @keyframes shadow{ /* 공이 가까울수록 크고 진하게 */
+    0%     {transform:scale(.45);opacity:.2;animation-timing-function:cubic-bezier(.55,0,.9,.45)}
+    45%    {transform:scale(1.05);opacity:.55}
+    47%,51%{transform:scale(1.3,1);opacity:.6}
+    53%    {transform:scale(1.05);opacity:.55;animation-timing-function:cubic-bezier(.1,.55,.45,1)}
+    100%   {transform:scale(.45);opacity:.2}
+  }
+
+  /* 컨트롤 바 */
+  .controls{display:flex;align-items:center;gap:clamp(12px,3vmin,22px);padding:8px 14px 8px 8px;border-radius:999px;
+    background:#fff;box-shadow:0 10px 28px rgba(43,29,20,.10),0 1px 2px rgba(43,29,20,.06)}
+  .hint{margin:0;font-size:clamp(12px,2vmin,14px);color:var(--muted)}
+
+  /* ───────── 핵심 2: 젤리 버튼 (transform 은 JS 스프링이 씀) ───────── */
+  .jelly{
+    display:inline-flex;align-items:center;gap:8px;padding:clamp(10px,1.8vmin,13px) clamp(16px,2.8vmin,22px);
+    border:0;border-radius:999px;background:var(--ink);color:#fff6ec;transform-origin:50% 100%;
+    font:inherit;font-size:clamp(13px,2.1vmin,15px);font-weight:700;cursor:pointer;
+    transition:background-color .2s;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  }
+  .jelly svg{width:18px;height:18px;fill:none;stroke:var(--hot);stroke-width:2;transition:fill .2s}
+  .jelly[aria-pressed="true"]{background:#c4321b}
+  .jelly[aria-pressed="true"] svg{fill:#fff6ec;stroke:#fff6ec}
+  .count{font-variant-numeric:tabular-nums;opacity:.8}
+
+  /* ───────── 핵심 3: 스위치 — 노브가 이동 방향으로 늘어났다 돌아옴 ───────── */
+  .sw-label{font-size:clamp(13px,2.1vmin,15px);font-weight:600}
+  .switch{--w:clamp(46px,8.6vmin,58px);--pad:3px;--knob:calc(var(--w) * .58 - var(--pad) * 2);
+    position:relative;width:var(--w);height:calc(var(--w) * .58);padding:0;border:0;border-radius:999px;cursor:pointer;
+    background:#e9d9c9;box-shadow:inset 0 0 0 1px rgba(43,29,20,.12);transition:background-color .3s}
+  .switch[aria-checked="true"]{background:#1f9d5a}
+  .knob{position:absolute;top:var(--pad);left:var(--pad);width:var(--knob);height:var(--knob);border-radius:50%;
+    background:#fff;box-shadow:0 2px 6px rgba(43,29,20,.3);transition:translate .42s cubic-bezier(.3,1.35,.5,1)}
+  .switch[aria-checked="true"] .knob{translate:calc(var(--w) - var(--knob) - var(--pad) * 2) 0}
+  .switch.moved[aria-checked="true"] .knob{animation:knob-a .42s ease-out}  /* 이름을 번갈아 써서 매번 재생 */
+  .switch.moved[aria-checked="false"] .knob{animation:knob-b .42s ease-out}
+  @keyframes knob-a{0%{scale:1 1}35%{scale:1.38 .8}70%{scale:.92 1.08}100%{scale:1 1}}
+  @keyframes knob-b{0%{scale:1 1}35%{scale:1.38 .8}70%{scale:.92 1.08}100%{scale:1 1}}
+
+  .jelly:focus-visible,.switch:focus-visible{outline:3px solid var(--hot);outline-offset:3px}
+
+  @media (prefers-reduced-motion:reduce){
+    .drop,.ball,.shadow{animation:none}
+    .drop{transform:translateY(calc(var(--drop) * .45))}   /* 공중에 멈춘 정지 프레임 */
+    .shadow{transform:scale(.75);opacity:.32}
+    .knob{transition:none;animation:none !important}
+    .jelly,.jelly svg,.switch{transition:none}
+  }
+
+  .tag{position:fixed;left:12px;bottom:12px;z-index:10;margin:0;font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;}
+</style>
+</head>
+<body>
+  <main class="demo">
+    <div class="stage" aria-hidden="true">
+      <div class="shadow"></div>
+      <div class="drop"><div class="ball"></div></div>
+    </div>
+
+    <div class="controls">
+      <button class="jelly" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.1A4.4 4.4 0 0 1 12 7.6a4.4 4.4 0 0 1 7.5 2.8c0 5.5-7.5 10.1-7.5 10.1Z"/></svg>
+        좋아요 <span class="count">128</span>
+      </button>
+      <span class="sw-label" id="sw-label">알림</span>
+      <button class="switch" type="button" role="switch" aria-checked="false" aria-labelledby="sw-label"><span class="knob"></span></button>
+    </div>
+    <p class="hint">누르면 찌그러지고, 놓으면 탱글하게 돌아와요</p>
+  </main>
+  <p class="tag">18 · Squash and Stretch</p>
+  <script>
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+
+    // ── 아주 작은 스프링: q = 찌그러짐 양, scaleY = 1 - q, scaleX = 1 / scaleY (면적 보존) ──
+    const STIFFNESS = 520, DAMPING = 14, PRESS = 0.16;
+    function springSquash(el) {
+      let q = 0, v = 0, goal = 0, raf = 0, last = 0;
+      const apply = () => { const sy = 1 - q; el.style.transform = `scale(${(1 / sy).toFixed(4)}, ${sy.toFixed(4)})`; };
+      function step(t) {
+        const dt = Math.min(0.032, Math.max(0.001, (t - last) / 1000)); last = t;
+        v += (-STIFFNESS * (q - goal) - DAMPING * v) * dt;   // F = -k·x - c·v
+        q += v * dt;
+        if (Math.abs(v) < 0.002 && Math.abs(q - goal) < 0.0005) { q = goal; v = 0; apply(); raf = 0; return; }
+        apply();
+        raf = requestAnimationFrame(step);
+      }
+      return (to) => {
+        goal = to;
+        if (reduce.matches) { cancelAnimationFrame(raf); raf = 0; q = 0; v = 0; apply(); return; } // 모션 감소: 변형 없음
+        if (!raf) { last = performance.now(); raf = requestAnimationFrame(step); }
+      };
+    }
+
+    const like = document.querySelector('.jelly');
+    const count = like.querySelector('.count');
+    const squish = springSquash(like);
+    const isKey = (e) => e.key === ' ' || e.key === 'Enter';
+
+    like.addEventListener('pointerdown', () => squish(PRESS));
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => like.addEventListener(ev, () => squish(0)));
+    like.addEventListener('keydown', (e) => { if (isKey(e) && !e.repeat) squish(PRESS); });
+    like.addEventListener('keyup', (e) => { if (isKey(e)) squish(0); });
+    like.addEventListener('click', () => {
+      const on = like.getAttribute('aria-pressed') !== 'true';
+      like.setAttribute('aria-pressed', String(on));
+      count.textContent = 128 + (on ? 1 : 0);
+    });
+
+    // ── 스위치: 상태 토글 + 첫 조작 후에만 늘어남 애니메이션 활성화 ──
+    const sw = document.querySelector('.switch');
+    sw.addEventListener('click', () => {
+      sw.classList.add('moved');
+      sw.setAttribute('aria-checked', String(sw.getAttribute('aria-checked') !== 'true'));
+    });
+  </script>
+</body>
+</html>

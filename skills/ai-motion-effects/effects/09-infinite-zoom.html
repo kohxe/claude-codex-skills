@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>09 · Infinite Zoom · 인피니트 줌</title>
+<!--
+EFFECT: Infinite Zoom (인피니트 줌)
+느낌: 액자 속 액자로 끝없이 빨려 들어가는 최면적인 몰입감 — 차분하지만 시선을 붙잡는 깊이
+잘 맞는 곳: 히어로 배경, 브랜드 인트로·로딩/대기 화면, 음악·전시·이벤트 티저, 섹션 전환 배경
+피해야 할 곳: 텍스트가 많은 화면의 배경, 오래 머무는 작업 화면(멀미 유발), 전정기관이 민감한 사용자 대상, 작은 카드 안
+핵심 기법:
+  - Canvas 2D: 둥근 사각 프레임 N개의 크기를 지수 함수(RATIO^깊이)로 키움 → 체감 속도가 일정한 줌
+  - 순환(wrap): 바깥에서 두 번째 프레임이 화면을 완전히 덮는 순간 가장 바깥 프레임을 중앙의 새 프레임으로 재활용 → 깊이·색·회전이 모두 연속이라 pop 없음
+  - 새 프레임은 globalAlpha 페이드 인, 색은 프레임 고유 번호로 PALETTE 순환(RINGS가 팔레트 길이의 배수), 깊이에 비례한 회전(TWIST) = 나선 터널
+  - 중앙 radial-gradient 비네트(CSS)로 소실점 깊이감 + 헤드라인 가독성 확보, 포인터 쪽으로 소실점이 살짝 따라감(STEER)
+조절 포인트:
+  PALETTE       바깥→안쪽 순환 색 (길이가 RINGS의 약수여야 순환이 매끈)
+  RINGS         동시에 그리는 프레임 수 (기본 18)
+  RATIO         이웃 프레임 크기 비 — 클수록 띠가 두꺼움 (기본 1.32)
+  SEC_PER_RING  한 단계 줌에 걸리는 시간 = 속도 (기본 0.85초, 작을수록 빠름)
+  TWIST         단계마다 더해지는 회전(rad), 0이면 직선 터널
+  CORNER        모서리 둥글기 (0 = 정사각형, 0.5 = 원)
+  STEER         포인터를 따라가는 소실점 이동량 (0 = 끔)
+  .demo::before 중앙 비네트 농도
+성능: 보통 — 매 프레임 전체 화면 크기의 도형 18개를 채우지만 셰이더·이미지 없이 단순 fill이라 가벼운 편. devicePixelRatio 최대 2, 화면 밖(IntersectionObserver)·탭 숨김 시 rAF 정지, 복귀 시 시간 점프 없음
+접근성: canvas는 aria-hidden 장식이고 의미는 h1에. reduced-motion이면 루프를 돌리지 않고 정지된 한 프레임만 그림(설정 변경도 실시간 반영). 비네트 덕분에 흰 헤드라인이 중앙에서 충분한 대비를 가짐. 줌 계열은 멀미를 유발할 수 있으니 실서비스에선 속도를 낮추고 일시정지 수단을 권장
+이식 메모:
+  - React: useEffect 안에서 ctx·ResizeObserver·IntersectionObserver·리스너를 만들고 cleanup에서 cancelAnimationFrame + disconnect + removeEventListener. 매 프레임 값(t, 포인터)은 useRef로, state 금지
+  - Next.js: 'use client' 컴포넌트로 만들고 canvas는 SSR 시 빈 상태로 두기(window 접근은 effect 안에서만)
+  - Tailwind: 캔버스는 absolute inset-0 size-full, 비네트는 bg-[radial-gradient(...)] 오버레이 div로
+  - 원형 터널을 원하면 CORNER = 0.5, 액자 느낌을 원하면 CORNER = 0.04
+-->
+<style>
+  :root{
+    --bg:#0b0820;
+    --font:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:#fff;font-family:var(--font)}
+
+  .demo{
+    position:relative;height:100%;overflow:hidden;isolation:isolate;
+    display:grid;place-items:center;padding:16px;text-align:center;background:var(--bg);
+  }
+  .tunnel{position:absolute;inset:0;z-index:-2;display:block;width:100%;height:100%}
+  /* 중앙을 어둡게 = 소실점의 깊이 + 헤드라인 가독성 */
+  .demo::before{
+    content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+    background:
+      radial-gradient(closest-side circle at 50% 50%,rgba(8,5,22,.84) 0%,rgba(8,5,22,.5) 50%,rgba(8,5,22,0) 100%),
+      radial-gradient(farthest-corner at 50% 50%,transparent 60%,rgba(5,3,15,.5) 100%);
+  }
+
+  .center{animation:float 7s ease-in-out infinite}
+  @keyframes float{50%{transform:translateY(-6px)}}
+  .eyebrow{margin:0 0 .9em;font-size:clamp(11px,1.6vmin,13px);font-weight:700;letter-spacing:.34em;padding-left:.34em;text-transform:uppercase;color:#cdbdff}
+  h1{margin:0;font-size:clamp(28px,9vmin,108px);font-weight:800;line-height:1.05;letter-spacing:-.03em;text-shadow:0 2px 30px rgba(0,0,0,.6)}
+  .sub{margin:.75em 0 0;font-size:clamp(12px,2vmin,18px);letter-spacing:.01em;color:#e8e0ff}
+
+  @media (prefers-reduced-motion: reduce){
+    .center{animation:none}
+  }
+
+  .tag{position:fixed;left:12px;bottom:12px;margin:0;font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff}
+</style>
+</head>
+<body>
+  <main class="demo">
+    <canvas class="tunnel" aria-hidden="true"></canvas>
+    <div class="center">
+      <p class="eyebrow">∞ Infinite Zoom</p>
+      <h1>끝없이, 더 깊이</h1>
+      <p class="sub">Into the endless frame</p>
+    </div>
+  </main>
+  <p class="tag">09 · Infinite Zoom</p>
+
+  <script>
+  (() => {
+    const canvas = document.querySelector('.tunnel');
+    const demo = canvas.parentElement;
+    const ctx = canvas.getContext('2d');
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+
+    /* ── 조절 포인트 ── */
+    const PALETTE = ['#0e0a24', '#1d1550', '#34268a', '#5b44d6', '#9f86ff', '#ff9ec6'];
+    const RINGS = 18;          // PALETTE 길이의 배수 → 색 순환이 끊기지 않음
+    const RATIO = 1.32;        // 이웃 프레임 크기 비
+    const SEC_PER_RING = 0.85; // 한 단계(RATIO배) 커지는 시간
+    const TWIST = 0.09;        // 단계당 회전(rad)
+    const CORNER = 0.22;       // 모서리 둥글기 (변 대비)
+    const FADE_STEPS = 1.5;    // 중앙에서 태어난 프레임이 다 보이기까지 단계 수
+    const STEER = 0.14;        // 포인터 쪽 소실점 이동량
+
+    let w = 0, h = 0, dpr = 1, raf = 0, last = 0, inView = true;
+    let t = SEC_PER_RING * 0.4;               // 경과 시간(초). reduced-motion이면 이 순간이 정지 화면
+    let aimX = 0, aimY = 0, curX = 0, curY = 0;
+
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      w = canvas.clientWidth; h = canvas.clientHeight;
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      draw();
+    }
+
+    // 원점 중심 둥근 정사각형 (ctx.roundRect 미지원 브라우저까지 호환)
+    function roundedSquare(s, r) {
+      const a = s / 2;
+      ctx.beginPath();
+      ctx.moveTo(-a + r, -a);
+      ctx.arcTo(a, -a, a, a, r);
+      ctx.arcTo(a, a, -a, a, r);
+      ctx.arcTo(-a, a, -a, -a, r);
+      ctx.arcTo(-a, -a, a, -a, r);
+      ctx.closePath();
+    }
+
+    function draw() {
+      const steps = t / SEC_PER_RING;
+      const n = Math.floor(steps);           // 지금까지 순환한 횟수
+      const f = steps - n;                   // 현재 단계 진행도 0~1
+      // 내접원(반지름 s/2)이 화면 대각선 + 소실점 이동량을 덮는 크기 = scale 1
+      const cover = Math.hypot(w, h) * (1 + STEER * 0.25);
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = PALETTE[0];
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // j가 클수록 바깥(큰) 프레임 → 큰 것부터 그려 작은 것이 위에 겹치게
+      for (let j = RINGS - 1; j >= 0; j--) {
+        const depth = j + f;                                  // 0(중앙에서 막 태어남) → RINGS(화면 밖)
+        const s = cover * Math.pow(RATIO, depth - (RINGS - 1)); // 두 번째 프레임이 1에 닿는 순간 가장 바깥 것이 순환
+        if (s < 1) continue;
+        const far = 1 - depth / RINGS;                        // 멀수록(작을수록) 소실점 이동을 크게
+        const cx = w / 2 + curX * STEER * w * 0.5 * far;
+        const cy = h / 2 + curY * STEER * h * 0.5 * far;
+        ctx.setTransform(dpr, 0, 0, dpr, cx * dpr, cy * dpr);
+        ctx.rotate(depth * TWIST);
+        ctx.globalAlpha = Math.min(1, depth / FADE_STEPS);   // 새 프레임 페이드 인
+        ctx.fillStyle = PALETTE[(((j - n) % PALETTE.length) + PALETTE.length) % PALETTE.length]; // 프레임 고유 색
+        roundedSquare(s, s * CORNER);
+        ctx.fill();
+        ctx.lineWidth = Math.max(0.6, s * 0.0035);
+        ctx.strokeStyle = 'rgba(255,255,255,.16)';
+        ctx.stroke();
+      }
+    }
+
+    function frame(now) {
+      raf = 0;
+      if (last) t += Math.min(now - last, 50) / 1000;  // 탭 복귀 시 큰 점프 방지
+      last = now;
+      curX += (aimX - curX) * 0.05;
+      curY += (aimY - curY) * 0.05;
+      draw();
+      play();
+    }
+    function play() {
+      if (!raf && inView && !document.hidden && !reduce.matches) raf = requestAnimationFrame(frame);
+    }
+    function pause() {
+      cancelAnimationFrame(raf);
+      raf = 0; last = 0;
+    }
+
+    new ResizeObserver(resize).observe(canvas);
+    new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting;
+      if (inView) play(); else pause();
+    }).observe(canvas);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); else play(); });
+    reduce.addEventListener('change', () => {
+      if (reduce.matches) { pause(); curX = curY = 0; draw(); } else play();
+    });
+
+    demo.addEventListener('pointermove', e => {
+      const r = demo.getBoundingClientRect();
+      aimX = ((e.clientX - r.left) / r.width) * 2 - 1;
+      aimY = ((e.clientY - r.top) / r.height) * 2 - 1;
+    });
+    demo.addEventListener('pointerleave', () => { aimX = aimY = 0; });
+
+    play();
+  })();
+  </script>
+</body>
+</html>

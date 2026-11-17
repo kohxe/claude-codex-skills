@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>06 · Kinetic Typography · 키네틱 타이포그래피</title>
+<!--
+EFFECT: Kinetic Typography (키네틱 타이포그래피)
+느낌: 글자 하나하나가 차례로 튀어 올라 자리 잡고, 숨 쉬듯 일렁이며, 손끝에 반응하는 에디토리얼한 생동감
+잘 맞는 곳: 히어로 헤드라인, 브랜드 슬로건, 캠페인 랜딩 타이틀, 섹션 인트로, 404·빈 상태 화면
+피해야 할 곳: 긴 본문·문단, 버튼·내비게이션·폼 라벨, 데이터 표, 매일 반복해서 보는 UI 텍스트
+핵심 기법:
+  - 글자 분할(split text): 단어(.word, nowrap) → 글자(.char) span, 글자마다 --i 인덱스 → calc()로 animation-delay 계산
+  - 이중 span: 바깥 .char = 등장(transform + opacity + filter:blur), 안쪽 span = 무한 wave(개별 속성 translate/rotate) → 두 transform이 충돌하지 않음
+  - 포인터 근접도 --p(0~1)를 rAF로 계산 → scale · skewX · color-mix()로 반응, transition으로 부드럽게
+조절 포인트:
+  --stagger      글자 사이 등장 지연 (기본 40ms)
+  --enter-dur    글자 하나의 등장 시간 (기본 900ms)
+  --wave-amp     일렁임 높이 (기본 .07em) / --wave-dur 일렁임 주기 (기본 3.2s)
+  --react-scale  포인터 바로 아래 글자의 추가 확대율 (기본 .35 → 1.35배)
+  --react-skew   포인터 근처 글자 기울기 (기본 -10deg)
+  --accent       강조색 (2행 글자색 + 포인터 반응색)
+  RADIUS (JS)    포인터 반응 반경, font-size 배수 (기본 1.8)
+성능: 가벼움 — transform/opacity 위주. 포인터 계산은 pointermove당 rAF 1회(상시 루프 없음), 읽기→쓰기 분리로 레이아웃 스래싱 방지. 글자가 수백 개라면 등장의 blur 필터는 빼는 것을 권장
+접근성: h1에 aria-label로 전체 문장을 주고 글자 span은 aria-hidden(스크린리더가 한 글자씩 끊어 읽지 않음). prefers-reduced-motion에서는 wave·포인터 반응을 끄고 등장은 짧은 페이드로 대체. 잉크 #1a1410 / 크림 #f4eee3 대비 약 16:1, 강조색 #c43a1c도 약 4.6:1
+이식 메모:
+  - React: DOM을 직접 쪼개지 말고 Array.from(text).map((ch, i) => <span className="char" style={{'--i': i}} aria-hidden>…) 로 렌더 → SSR/하이드레이션 안전. pointermove 리스너와 rAF는 useEffect cleanup에서 해제
+  - 다시 재생: key를 바꿔 리마운트하거나, class 제거 → void el.offsetWidth(reflow) → class 추가
+  - Tailwind: [animation-delay:calc(var(--i)*40ms)] 같은 arbitrary value + theme.extend.keyframes에 enter/wave 등록
+  - Next.js: 포인터 반응·재생 버튼만 'use client' 컴포넌트로 분리하고 헤드라인 텍스트는 서버에서 렌더
+-->
+<style>
+  :root{
+    --bg:#f4eee3; --ink:#1a1410; --muted:#6b5f53; --accent:#c43a1c;
+    --stagger:40ms; --enter-dur:900ms;
+    --wave-amp:.07em; --wave-dur:3.2s;
+    --react-scale:.35; --react-skew:-10deg;
+    --font:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font)}
+
+  .demo{
+    height:100%;overflow:hidden;isolation:isolate;
+    display:grid;place-content:center;justify-items:center;gap:clamp(12px,3.2vmin,30px);
+    padding:16px;text-align:center;
+    background:radial-gradient(70% 55% at 50% 42%,#fffaf2 0%,rgba(255,250,242,0) 70%),var(--bg);
+  }
+  .eyebrow{margin:0;font-size:clamp(10px,1.7vmin,13px);font-weight:700;letter-spacing:.26em;text-transform:uppercase;color:var(--muted)}
+  .eyebrow::before{content:"";display:inline-block;width:.55em;height:.55em;margin-right:.7em;border-radius:50%;background:var(--accent);vertical-align:.08em}
+  .hint{margin:0;font-size:clamp(11px,1.8vmin,15px);color:var(--muted)}
+
+  /* ───── 키네틱 헤드라인: 이 블록 + 아래 JS가 이펙트의 전부 ───── */
+  .kinetic{margin:0;font-size:clamp(28px,8.4vmin,112px);font-weight:800;line-height:1.12;letter-spacing:-.025em}
+  .kinetic .line{display:block;--c:var(--ink);--c-hot:var(--accent);color:var(--c)}
+  .kinetic .line--accent{--c:var(--accent);--c-hot:var(--ink);font-style:italic;font-weight:700}
+  .kinetic .word{display:inline-block;white-space:nowrap}      /* 줄바꿈은 단어 사이에서만 */
+  .kinetic .char{display:inline-block}                          /* 바깥: 등장 담당 */
+  .kinetic .char > span{                                        /* 안쪽: wave + 포인터 반응 */
+    display:inline-block;transform-origin:50% 85%;
+    transform:scale(calc(1 + var(--p,0) * var(--react-scale))) skewX(calc(var(--p,0) * var(--react-skew)));
+    color:color-mix(in oklab,var(--c-hot) calc(var(--p,0) * 100%),var(--c));
+    transition:transform .3s cubic-bezier(.2,.8,.2,1),color .3s;
+    animation:wave var(--wave-dur) ease-in-out infinite;
+    animation-delay:calc(var(--i) * -.14s);                     /* 음수 지연 → 처음부터 물결 위상이 어긋나 있음 */
+  }
+  .kinetic.is-in .char{
+    animation:enter var(--enter-dur) cubic-bezier(.2,.85,.25,1.2) both;
+    animation-delay:calc(var(--i) * var(--stagger));
+  }
+  @keyframes enter{
+    from{opacity:0;transform:translateY(.75em) rotate(var(--r,10deg)) scale(.7);filter:blur(6px)}
+    55%{opacity:1;filter:blur(0)}
+    to{opacity:1;transform:none;filter:none}
+  }
+  @keyframes wave{
+    0%,100%{translate:0 0;rotate:0deg}
+    50%{translate:0 calc(var(--wave-amp) * -1);rotate:-1.5deg}
+  }
+
+  /* 다시 재생 버튼 */
+  .replay{
+    display:inline-flex;align-items:center;gap:.55em;padding:.85em 1.35em;
+    font:600 clamp(12px,1.8vmin,15px)/1 var(--font);color:var(--ink);
+    background:transparent;border:1.5px solid var(--ink);border-radius:999px;cursor:pointer;
+    transition:background-color .2s,color .2s,transform .2s;
+  }
+  .replay svg{width:1.15em;height:1.15em;transition:rotate .5s cubic-bezier(.3,.7,.2,1)}
+  .replay:hover{background:var(--ink);color:var(--bg)}
+  .replay:hover svg{rotate:-200deg}
+  .replay:active{transform:scale(.96)}
+  .replay:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+
+  @media (prefers-reduced-motion: reduce){
+    .kinetic.is-in .char{animation:fade .4s ease both;animation-delay:0s}
+    .kinetic .char > span{animation:none;transition:none}
+    .replay,.replay svg{transition:none}
+    .replay:hover svg{rotate:none}
+  }
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+
+  .tag{position:fixed;left:12px;bottom:12px;margin:0;font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff}
+</style>
+</head>
+<body>
+  <main class="demo">
+    <p class="eyebrow">Kinetic Typography</p>
+    <h1 class="kinetic">
+      <span class="line">글자에 숨을 불어넣다</span>
+      <span class="line line--accent">Type, alive.</span>
+    </h1>
+    <p class="hint">포인터를 글자 가까이 가져가 보세요</p>
+    <button class="replay" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/>
+      </svg>
+      다시 재생
+    </button>
+  </main>
+  <p class="tag">06 · Kinetic Typography</p>
+
+  <script>
+  (() => {
+    const headline = document.querySelector('.kinetic');
+    const demo = document.querySelector('.demo');
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+    const RADIUS = 1.8; // 포인터 반응 반경 (font-size의 배수)
+
+    /* 1) 글자 분할 — 원문은 aria-label로 보존, 시각용 글자는 aria-hidden */
+    headline.setAttribute('aria-label', headline.textContent.replace(/\s+/g, ' ').trim());
+    let i = 0;
+    for (const line of headline.querySelectorAll('.line')) {
+      const words = line.textContent.trim().split(/\s+/);
+      line.textContent = '';
+      words.forEach((word, w) => {
+        const wordEl = document.createElement('span');
+        wordEl.className = 'word';
+        for (const ch of word) {                // for…of = 코드포인트 단위 (한글 음절 OK)
+          const outer = document.createElement('span');
+          const inner = document.createElement('span');
+          outer.className = 'char';
+          outer.setAttribute('aria-hidden', 'true');
+          outer.style.setProperty('--i', i);
+          outer.style.setProperty('--r', `${(i % 2 ? -1 : 1) * (8 + (i * 5) % 10)}deg`); // 글자마다 다른 등장 회전
+          inner.textContent = ch;
+          outer.append(inner);
+          wordEl.append(outer);
+          i++;
+        }
+        line.append(wordEl);
+        if (w < words.length - 1) line.append(' ');
+      });
+    }
+    const chars = [...headline.querySelectorAll('.char')];
+
+    /* 2) 등장 — 클래스를 뗐다 붙여 CSS 애니메이션 재시작 */
+    const play = () => {
+      headline.classList.remove('is-in');
+      void headline.offsetWidth; // 강제 reflow
+      headline.classList.add('is-in');
+    };
+    play();
+    document.querySelector('.replay').addEventListener('click', play);
+
+    /* 3) 포인터 반응 — 글자 중심까지의 거리 → --p (0~1) */
+    let px = 0, py = 0, raf = 0;
+    const update = () => {
+      raf = 0;
+      const radius = parseFloat(getComputedStyle(headline).fontSize) * RADIUS;
+      const rects = chars.map(c => c.getBoundingClientRect()); // 읽기 먼저 (레이아웃 1회)
+      chars.forEach((c, k) => {                                 // 그다음 쓰기
+        const r = rects[k];
+        const d = Math.hypot(px - (r.left + r.width / 2), py - (r.top + r.height / 2));
+        const t = Math.max(0, 1 - d / radius);
+        c.style.setProperty('--p', (t * t * (3 - 2 * t)).toFixed(3)); // smoothstep
+      });
+    };
+    demo.addEventListener('pointermove', e => {
+      if (reduce.matches) return;
+      px = e.clientX; py = e.clientY;
+      if (!raf) raf = requestAnimationFrame(update);
+    });
+    demo.addEventListener('pointerleave', () => {
+      cancelAnimationFrame(raf); raf = 0;
+      chars.forEach(c => c.style.setProperty('--p', 0));
+    });
+  })();
+  </script>
+</body>
+</html>

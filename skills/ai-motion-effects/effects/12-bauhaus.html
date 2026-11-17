@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>12 · Bauhaus · 바우하우스</title>
+<!--
+EFFECT: Bauhaus (바우하우스)
+느낌: 원·삼각형·사각형과 빨강·파랑·노랑이 맞물려 도는, 정확하고 기계적인 모더니즘 포스터
+잘 맞는 곳: 히어로 비주얼, 에이전시·포트폴리오 랜딩, 전시/이벤트 포스터, 섹션 구분 그래픽, 404 페이지
+피해야 할 곳: 긴 본문 배경, 데이터 대시보드, 차분해야 하는 금융·의료 UI
+핵심 기법:
+  - CSS Grid 4×4 + 타일마다 변수 3개: --a(타일색) --b(도형색) --c(포인트색) → 호버 시 a↔b 반전
+  - 도형은 border-radius / clip-path만으로 (원·반원·사분원·사각형·삼각형) — 이미지·SVG 없음
+  - 레이어 하나에 역할 하나: .turn(호버·클릭 90°) › .spin(기계식 스텝 회전) › .shape(등장)
+  - transform 대신 개별 속성 rotate / translate / scale로 애니메이션끼리 충돌 방지, 헤드라인은 cqi(컨테이너 단위)
+조절 포인트:
+  - --red / --blue / --yellow / --ink / --cream: 팔레트
+  - --tick-ease: 스텝 회전 이징(기계 느낌의 핵심) / 타일별 --spin: 한 바퀴 시간, --sd: 음수 지연(엇박), --dir: 방향
+  - --i: 등장 순서(70ms 간격), --from: 등장 시 미끄러져 들어오는 방향
+  - 도형별 --in: 타일 안 여백(=도형 크기) / .grid width: 전체 컴포지션 크기
+성능: 가벼움 — 합성 단계에서 처리되는 rotate/translate/scale CSS 애니메이션뿐, JS는 클릭 카운터 몇 줄
+접근성: prefers-reduced-motion이면 등장·연속 회전을 끄고 정적인 구성만 보여주며 호버 회전은 즉시 전환.
+        타일은 <button>(aria-label) — 키보드 포커스 시 호버와 같은 반응 + 클릭/Enter/Space로 90° 누적 회전.
+        텍스트 대비: 크림 on 검정 ≈ 15:1, 보조 텍스트 #4f483f on 크림 ≈ 7:1
+이식 메모:
+  - React: 타일을 배열 데이터로 map 렌더, style={{'--a':'var(--red)', '--i':3}}; 회전 수는 useState → style의 --turn
+  - Tailwind: [--a:var(--red)] 같은 arbitrary property, [container-type:inline-size], 키프레임은 config의 keyframes에
+  - Next.js: CSS만으로 동작하므로 서버 컴포넌트 가능 — 클릭 회전 타일만 'use client'로 분리
+-->
+<style>
+  :root{
+    --cream:#f4eee2; --paper:#e8dfcc; --ink:#141414;
+    --red:#d6322a; --blue:#1f4fa0; --yellow:#f3b80c;
+    --tick-ease:cubic-bezier(.75,0,.2,1);   /* '탁-' 하고 멈추는 기계식 이징 */
+    --out:cubic-bezier(.16,1,.3,1);
+    --sans:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  }
+  html,body{margin:0;height:100%}
+  body{display:grid;place-items:center;overflow:hidden;background:var(--paper);font-family:var(--sans);color:var(--ink)}
+  .demo{display:grid;place-items:center}
+
+  /* ── 컴포지션 그리드 (검정 틈 = 줄눈) ── */
+  .grid{
+    container-type:inline-size;                         /* 자식이 cqi 단위로 그리드 크기를 따름 */
+    box-sizing:border-box;width:min(84vmin,620px);aspect-ratio:1;
+    display:grid;grid-template:repeat(4,minmax(0,1fr))/repeat(4,minmax(0,1fr));
+    gap:clamp(3px,1.1vmin,8px);padding:clamp(3px,1.1vmin,8px);
+    background:var(--ink);box-shadow:0 2.4vmin 5vmin -2vmin rgba(20,20,20,.45);
+  }
+
+  /* ── 타일 = 버튼. 3겹 레이어: .turn(호버/클릭) › .spin(스텝 회전) › .shape(등장) ── */
+  .tile{position:relative;isolation:isolate;overflow:hidden;width:100%;height:100%;margin:0;padding:0;border:0;
+    font:inherit;cursor:pointer;background:var(--a);transition:background-color .4s var(--tick-ease)}
+  .turn,.spin{position:absolute;inset:0}
+  .turn{transform:rotate(calc((var(--turn,0) + var(--hot,0)) * 90deg));transition:transform .6s var(--tick-ease)}
+  .spin{animation:tick var(--spin,16s) var(--tick-ease) var(--sd,0s) infinite var(--dir,normal)}
+  .shape{position:absolute;inset:var(--in,16%);background:var(--b);transition:background-color .4s var(--tick-ease);
+    animation:enter 1s var(--out) calc(var(--i,0) * 70ms + 200ms) backwards}
+  .tile:nth-of-type(3n+1) .shape{--from:-70% 0}
+  .tile:nth-of-type(3n+2) .shape{--from:0 70%}
+  .tile:nth-of-type(3n)   .shape{--from:70% 0}
+
+  /* 호버(마우스 기기만)·키보드 포커스 → 90° 회전 + 색 반전 */
+  @media (hover:hover){ .tile:hover{--hot:1} }
+  .tile:focus-visible{--hot:1;outline:none}
+  .tile:is(:hover,:focus-visible){background:var(--b)}
+  .tile:is(:hover,:focus-visible) .shape{background:var(--a)}
+  .tile::after{content:"";position:absolute;inset:8%;z-index:1;border:3px solid var(--ink);
+    box-shadow:0 0 0 3px var(--cream),inset 0 0 0 3px var(--cream);opacity:0;pointer-events:none}
+  .tile:focus-visible::after{opacity:1}                 /* 어떤 색 위에서도 보이는 2중 포커스 링 */
+
+  /* ── 도형 라이브러리 ── */
+  .circle{border-radius:50%;overflow:hidden}
+  .circle.dot::after{content:"";position:absolute;inset:14% 52% 52% 14%;border-radius:50%;background:var(--c)}
+  .circle.split::after{content:"";position:absolute;inset:0 0 0 50%;background:var(--c)}
+  .half{--in:31% 12%;border-radius:50% 50% 0 0/100% 100% 0 0}
+  .quarter{--in:0%;border-radius:100% 0 0 0}
+  .square{--in:25%;overflow:hidden}
+  .square::after{content:"";position:absolute;inset:0 50% 50% 0;background:var(--c)}
+  .triangle{--in:13%;clip-path:polygon(50% 5%,100% 92%,0 92%)}
+
+  @keyframes enter{from{opacity:0;scale:.3;rotate:-180deg;translate:var(--from,0 60%)}}
+  @keyframes tick{                                       /* 멈춤 → 90° 회전 → 멈춤 … */
+    0%,20%{rotate:0deg} 25%,45%{rotate:90deg} 50%,70%{rotate:180deg} 75%,95%{rotate:270deg} 100%{rotate:360deg}
+  }
+
+  /* ── 헤드라인 & 캡션 타일 ── */
+  .head{grid-column:span 2;position:relative;margin:0;display:flex;flex-direction:column;justify-content:flex-end;
+    padding:2.4cqi 3cqi;background:var(--ink);color:var(--cream);overflow:hidden;
+    font:900 10.5cqi/.84 var(--sans);letter-spacing:-.045em;text-transform:uppercase}
+  .head::after{content:"";position:absolute;top:3cqi;right:3cqi;width:4.5cqi;aspect-ratio:1;border-radius:50%;background:var(--red)}
+  .ln{display:block;overflow:hidden;padding-bottom:.05em}
+  .ln>span{display:block;animation:rise .9s var(--out) .1s backwards}
+  .ln+.ln>span{animation-delay:.22s}
+  @keyframes rise{from{transform:translateY(110%)}}
+  .caption{grid-column:span 2;margin:0;display:flex;flex-direction:column;justify-content:center;gap:1.4cqi;
+    padding:3cqi 4cqi;background:var(--cream);animation:fade .8s var(--out) 1.1s backwards}
+  .caption::before{content:"";width:8cqi;height:1.2cqi;background:var(--red)}
+  .caption b{font:800 5.2cqi/1.1 var(--sans);letter-spacing:-.02em}
+  .caption small{font:700 max(9px,2.2cqi)/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:#4f483f}
+  @keyframes fade{from{opacity:0;translate:0 20%}}
+
+  .tag{position:fixed;left:12px;bottom:12px;z-index:10;margin:0;font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;}
+
+  @media (prefers-reduced-motion:reduce){
+    .spin,.shape,.ln>span,.caption{animation:none}
+    .tile,.turn,.shape{transition-duration:.01s}
+  }
+</style>
+</head>
+<body>
+  <main class="demo">
+    <div class="grid" role="group" aria-label="바우하우스 도형 타일 — 누를 때마다 90° 회전">
+      <h1 class="head" aria-label="Bauhaus"><span class="ln"><span>Bau</span></span><span class="ln"><span>haus</span></span></h1>
+      <button class="tile" type="button" aria-label="빨간 원" style="--a:var(--cream);--b:var(--red);--c:var(--ink);--i:1;--spin:14s;--sd:-3s">
+        <span class="turn"><span class="spin"><span class="shape circle dot"></span></span></span></button>
+      <button class="tile" type="button" aria-label="파란 사분원" style="--a:var(--yellow);--b:var(--blue);--i:2;--spin:18s;--sd:-11s;--dir:reverse">
+        <span class="turn"><span class="spin"><span class="shape quarter"></span></span></span></button>
+      <button class="tile" type="button" aria-label="노란 반원" style="--a:var(--blue);--b:var(--yellow);--i:3;--spin:16s;--sd:-6s">
+        <span class="turn"><span class="spin"><span class="shape half"></span></span></span></button>
+      <button class="tile" type="button" aria-label="크림색 사각형" style="--a:var(--red);--b:var(--cream);--c:var(--ink);--i:4;--spin:20s;--sd:-2s">
+        <span class="turn"><span class="spin"><span class="shape square"></span></span></span></button>
+      <button class="tile" type="button" aria-label="검정 삼각형" style="--a:var(--yellow);--b:var(--ink);--i:5;--spin:15s;--sd:-9s;--dir:reverse">
+        <span class="turn"><span class="spin"><span class="shape triangle"></span></span></span></button>
+      <button class="tile" type="button" aria-label="노랑과 빨강 원" style="--a:var(--ink);--b:var(--yellow);--c:var(--red);--i:6;--spin:22s;--sd:-14s">
+        <span class="turn"><span class="spin"><span class="shape circle split"></span></span></span></button>
+      <button class="tile" type="button" aria-label="파란 사분원" style="--a:var(--cream);--b:var(--blue);--i:7;--spin:17s;--sd:-5s">
+        <span class="turn"><span class="spin"><span class="shape quarter"></span></span></span></button>
+      <button class="tile" type="button" aria-label="검정 반원" style="--a:var(--yellow);--b:var(--ink);--i:8;--spin:19s;--sd:-12s;--dir:reverse">
+        <span class="turn"><span class="spin"><span class="shape half"></span></span></span></button>
+      <button class="tile" type="button" aria-label="노란 삼각형" style="--a:var(--red);--b:var(--yellow);--i:9;--spin:13s;--sd:-7s">
+        <span class="turn"><span class="spin"><span class="shape triangle"></span></span></span></button>
+      <button class="tile" type="button" aria-label="크림과 노랑 원" style="--a:var(--blue);--b:var(--cream);--c:var(--yellow);--i:10;--spin:21s;--sd:-1s;--dir:reverse">
+        <span class="turn"><span class="spin"><span class="shape circle split"></span></span></span></button>
+      <button class="tile" type="button" aria-label="빨간 사각형" style="--a:var(--ink);--b:var(--red);--c:var(--cream);--i:11;--spin:16s;--sd:-10s">
+        <span class="turn"><span class="spin"><span class="shape square"></span></span></span></button>
+      <button class="tile" type="button" aria-label="노란 원" style="--a:var(--blue);--b:var(--yellow);--c:var(--red);--i:12;--spin:18s;--sd:-4s">
+        <span class="turn"><span class="spin"><span class="shape circle dot"></span></span></span></button>
+      <p class="caption"><b>형태는<br>기능을 따른다</b><small>Form follows function · 1919</small></p>
+    </div>
+  </main>
+  <p class="tag">12 · Bauhaus</p>
+
+  <script>
+  // 클릭·Enter·Space마다 90°씩 누적 회전 — 호버가 없는 터치 기기에서도 체험 가능
+  document.querySelectorAll('.tile').forEach(tile => {
+    let turns = 0;
+    tile.addEventListener('click', () => tile.style.setProperty('--turn', ++turns));
+  });
+  </script>
+</body>
+</html>

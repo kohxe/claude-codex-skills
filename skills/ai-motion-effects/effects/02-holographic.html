@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>02 · Holographic · 홀로그래픽</title>
+<!--
+EFFECT: Holographic (홀로그래픽)
+느낌: 빛을 받을 때마다 무지갯빛이 흐르는 홀로그램 포일 — 수집 카드·프리미엄 멤버십 같은 특별함
+잘 맞는 곳: 멤버십·등급 카드, 수집품/NFT 카드, 티켓·쿠폰, 프리미엄 요금제 카드, 제품 히어로 이미지 1개
+피해야 할 곳: 긴 본문·폼 위, 한 화면에 여러 장 동시(시선 분산 + 비용), 글자 대비가 중요한 정보 카드
+핵심 기법:
+  - JS 는 0~1 숫자 3개(--px, --py, --hyp)만 씀 → 기울기·그라디언트 위치·밝기는 전부 CSS calc() 가 계산
+  - 포일: 무지개 repeating-linear-gradient × 스포트라이트 radial-gradient(background-blend-mode: multiply) 를 mix-blend-mode: color-dodge 로 얹음
+  - 글레어: 포인터 위치 radial-gradient + mix-blend-mode: overlay
+  - 3D 기울기: 부모 perspective + rotateX/rotateY
+  - 입력 3가지: 마우스·펜·손가락 드래그(pointer) → 폰 기울기 센서(deviceorientation) → 둘 다 없으면 리사주 곡선으로 자동 흔들림
+    (폰에서 아무것도 안 해도 반짝임이 보이게)
+  - 기울기 센서: DeviceOrientationEvent.requestPermission 이 있는 브라우저(iOS Safari, 일부 최신 Chromium)는 첫 탭(click)에서 권한을 받고,
+    없는 브라우저는 바로 동작. 처음 잡은 각도를 가운데로 삼고, 가로 모드면 축을 돌려 보정.
+    폰을 바닥에 내려놓아 GYRO_QUIET_MS 동안 진짜 기울임이 없으면 다시 자동 흔들림으로 돌아감(카드가 멈춰 보이지 않게)
+  - 글자 레이어(.holo__content)를 포일·글레어 위에 둬서 무지갯빛이 글자를 덮지 않음
+조절 포인트:
+  - --tilt: 최대 기울기(숫자, deg 단위). 0 이면 평면
+  - --foil-strength / --glare-strength: 포일·글레어 세기(0~1)
+  - --card-w: 카드 너비 / 무지개 색은 .holo__foil 첫 번째 gradient 의 색 정지점
+  - EASE (JS): 따라오는 부드러움(0~1), IDLE_SPEED: 자동 흔들림 속도
+  - IDLE (JS): false 면 입력이 없을 때 자동 흔들림 없이 멈춰 있음(배터리 절약, 카드가 여러 장일 때)
+  - GYRO_RANGE (JS): 폰을 몇 도 기울이면 끝까지 움직일지
+  - GYRO_WAKE (JS): 몇 도 이상 움직여야 '진짜 기울임'으로 볼지(바닥에 둔 폰의 센서 잡음 무시)
+  - GYRO_QUIET_MS (JS): 진짜 기울임이 몇 ms 없으면 자동 흔들림으로 돌아갈지
+성능: 보통 — 블렌드 모드 레이어 2장 + 움직이는 동안 매 프레임 커스텀 프로퍼티 갱신. 변수는 카드 컨테이너(.demo)에만 써서 스타일 재계산 범위를 좁힘.
+  rAF 는 따라갈 목표(포인터·센서)에 도착하면 스스로 멈추고 다음 입력이 깨움. 자동 흔들림 중에만 계속 돎. 화면 밖·탭 숨김이면 정지.
+접근성: prefers-reduced-motion 이면 기울기(--tilt:0)·자동 흔들림·센서 반응을 끄고, 포인터에 따라 색만 즉시 바뀜.
+  글자는 포일 위 레이어라 대비가 유지됨. 그래도 금액·날짜 같은 핵심 정보는 카드 밖에도 표기.
+  카드는 touch-action:pan-y 라 손가락이 카드 위에 있어도 세로 스크롤이 막히지 않음.
+이식 메모:
+  - React: ref 로 컨테이너를 잡고 useEffect 에서 rAF·리스너 등록 → cleanup 에서 cancelAnimationFrame + observer.disconnect()
+    + deviceorientation·matchMedia·click 리스너 제거 + clearTimeout(quietTimer). 값은 state 말고 style.setProperty 로(리렌더 방지)
+  - iOS 센서 권한: DeviceOrientationEvent.requestPermission() 은 click 핸들러 안에서만 됨(pointerdown 은 안 됨). https 에서만 동작
+  - Tailwind: 레이어 3장은 CSS 로 두는 편이 깔끔. 굳이 하면 [mix-blend-mode:color-dodge] [background:...] 임의값
+  - Next.js: 'use client' 컴포넌트. SSR 첫 프레임은 CSS 기본값(--px/--py)으로 정적 렌더됨
+-->
+<style>
+  :root{
+    --bg:#07080f;
+    --card-w:min(78vmin,400px);
+    --tilt:14;             /* 최대 기울기(deg) */
+    --foil-strength:.8;
+    --glare-strength:.75;
+    --rainbow:#ff6b8b,#ffd36b,#7dff9b,#6bd8ff,#9d7bff,#ff6bd5,#ff6b8b;
+  }
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:#fff;font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+  .demo{height:100%;display:grid;place-items:center;align-content:center;gap:clamp(16px,4.5vmin,36px);overflow:hidden;
+    background:radial-gradient(70% 60% at 50% 42%,#1b1e3d,var(--bg) 72%);
+    --px:.68; --py:.32; --hyp:.5;   /* JS 가 갱신하는 값 (0~1). 이 기본값이 정적 프레임 */
+  }
+
+  /* ── ① 카드 + 3D 기울기 (포인터 쪽 모서리가 앞으로 나옴) ── */
+  .stage{perspective:900px}
+  .holo{position:relative;width:var(--card-w);aspect-ratio:1.586;border-radius:clamp(12px,3vmin,20px);overflow:hidden;isolation:isolate;touch-action:pan-y;
+    background:linear-gradient(135deg,#252a55,#11132a 55%,#241a44);
+    transform:rotateX(calc((var(--py) - .5) * 2 * var(--tilt) * 1deg)) rotateY(calc((var(--px) - .5) * -2 * var(--tilt) * 1deg));
+    box-shadow:calc((.5 - var(--px)) * 28px) calc(26px + (.5 - var(--py)) * 16px) 50px -14px rgba(0,0,0,.75),inset 0 0 0 1px rgba(255,255,255,.12)}
+  .holo__content{position:absolute;inset:0;z-index:2;padding:clamp(14px,4.2vmin,26px);display:flex;flex-direction:column;justify-content:space-between}
+  .holo__row{display:flex;justify-content:space-between;align-items:center}
+  .holo__brand{font-weight:800;letter-spacing:.32em;font-size:clamp(11px,2.4vmin,13px)}
+  .holo__chip{width:clamp(30px,8vmin,44px);aspect-ratio:1.3;border-radius:6px;background:linear-gradient(135deg,#f6e3a1,#b8893b 60%,#f1d58a);box-shadow:inset 0 0 0 1px rgba(0,0,0,.25)}
+  .holo__title{margin:0;font-weight:800;font-size:clamp(22px,6.6vmin,38px);letter-spacing:-.02em;line-height:1}
+  .holo__title small{display:block;margin-top:.45em;font-size:max(11px,.36em);font-weight:600;letter-spacing:.16em;opacity:.75}
+  .holo__meta{font-size:clamp(11px,2.1vmin,12px);letter-spacing:.14em;opacity:.85;font-variant-numeric:tabular-nums}
+
+  /* ── ② 포일: 무지개 띠가 포인터 따라 흐르고, color-dodge 로 밝은 곳만 빛남 ── */
+  .holo__foil{position:absolute;inset:0;pointer-events:none;mix-blend-mode:color-dodge;
+    opacity:calc(var(--foil-strength) * (.45 + var(--hyp) * .55));
+    background:
+      repeating-linear-gradient(115deg,var(--rainbow) 42%),
+      radial-gradient(farthest-corner circle at calc(var(--px) * 100%) calc(var(--py) * 100%),#fff 0%,#777 35%,#111 80%);
+    background-size:400% 400%,100% 100%;
+    background-position:calc(var(--px) * 100%) calc(var(--py) * 100%),center;
+    background-blend-mode:multiply;
+    filter:saturate(1.2) contrast(1.1)}
+  /* 미세한 사선 결(크로스해치) — 포인터에 따라 반짝임 */
+  .holo__foil::after{content:"";position:absolute;inset:0;mix-blend-mode:overlay;opacity:.55;
+    background:repeating-linear-gradient(55deg,transparent 0 3px,rgba(255,255,255,.35) 3px 4px),
+               repeating-linear-gradient(-55deg,transparent 0 3px,rgba(255,255,255,.25) 3px 4px);
+    background-position:calc(var(--px) * 40px) 0,0 calc(var(--py) * 40px)}
+
+  /* ── ③ 글레어: 포인터 위치의 하이라이트 ── */
+  .holo__glare{position:absolute;inset:0;pointer-events:none;mix-blend-mode:overlay;
+    opacity:calc(var(--glare-strength) * (.3 + var(--hyp) * .7));
+    background:radial-gradient(farthest-corner circle at calc(var(--px) * 100%) calc(var(--py) * 100%),rgba(255,255,255,.9) 0%,rgba(255,255,255,.25) 25%,rgba(0,0,0,.45) 85%)}
+
+  /* 버튼: 같은 --px 로 테두리 무지개가 회전 */
+  .holo-btn{appearance:none;border:1.5px solid transparent;border-radius:999px;padding:.85em 1.6em;cursor:pointer;color:#fff;
+    font:inherit;font-weight:700;font-size:clamp(13px,2.4vmin,16px);
+    background:linear-gradient(#11132a,#11132a) padding-box,conic-gradient(from calc(var(--px) * 360deg),var(--rainbow)) border-box;
+    transition:transform .2s ease,box-shadow .2s ease}
+  .holo-btn:hover{transform:translateY(-2px);box-shadow:0 12px 24px -10px rgba(0,0,0,.85)}
+  .holo-btn:active{transform:translateY(0) scale(.97)}
+  .holo-btn:focus-visible{outline:2px solid #fff;outline-offset:4px}
+
+  @media (prefers-reduced-motion: reduce){
+    :root{--tilt:0}
+    .holo-btn{transition:none}
+  }
+
+  .tag{position:fixed;left:12px;bottom:12px;margin:0;z-index:10;font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff}
+</style>
+</head>
+<body>
+  <main class="demo">
+    <div class="stage">
+      <article class="holo" aria-label="홀로그래픽 멤버십 카드 예시">
+        <div class="holo__content">
+          <div class="holo__row"><span class="holo__brand">AURORA</span><span class="holo__chip" aria-hidden="true"></span></div>
+          <p class="holo__title">Holo Pass<small>프리미엄 멤버십</small></p>
+          <div class="holo__row holo__meta"><span>MEMBER · 2026</span><span>No. 0427</span></div>
+        </div>
+        <div class="holo__foil" aria-hidden="true"></div>
+        <div class="holo__glare" aria-hidden="true"></div>
+      </article>
+    </div>
+    <button class="holo-btn" type="button">카드 발급받기</button>
+  </main>
+  <p class="tag">02 · Holographic</p>
+
+  <script>
+  /* 포인터 → 기울기 센서 → 자동 흔들림 순으로 목표를 정하고, --px/--py/--hyp 를 부드럽게 갱신. 나머지는 CSS 가 계산 */
+  (() => {
+    const demo = document.querySelector('.demo');
+    const stage = demo.querySelector('.stage');   // 기울지 않는 래퍼 기준으로 좌표 계산
+    const card = demo.querySelector('.holo');
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+    const EASE = 0.12;        // 0~1, 클수록 즉각 반응
+    const IDLE = true;        // 입력이 없을 때 자동 흔들림 (false 면 정지 화면 → 루프도 멈춤)
+    const IDLE_SPEED = 0.6;   // 자동 흔들림 속도
+    const GYRO_RANGE = 25;    // 폰을 이만큼(도) 기울이면 끝까지 이동
+    const GYRO_WAKE = 1.5;    // 이만큼(도) 움직여야 '진짜 기울임' (바닥에 둔 폰의 센서 잡음은 무시)
+    const GYRO_QUIET_MS = 3000; // 진짜 기울임이 이만큼(ms) 없으면 자동 흔들림으로 복귀
+    const REST = { x: .68, y: .32 };
+    const cur = { ...REST };
+    let target = null, raf = 0, last = 0, onScreen = true;
+    let gyroOn = false, pointing = false, base = null, anchor = null, quietTimer = 0;
+
+    const write = (x, y) => {
+      demo.style.setProperty('--px', x.toFixed(4));
+      demo.style.setProperty('--py', y.toFixed(4));
+      demo.style.setProperty('--hyp', Math.min(1, Math.hypot(x - .5, y - .5) * 2).toFixed(3));
+    };
+    const clamp01 = v => Math.min(1, Math.max(0, v));
+
+    /* ① 마우스·펜·손가락 드래그 */
+    demo.addEventListener('pointermove', e => {
+      pointing = true;
+      const r = stage.getBoundingClientRect();
+      target = { x: clamp01((e.clientX - r.left) / r.width), y: clamp01((e.clientY - r.top) / r.height) };
+      if (reduce.matches) write(target.x, target.y);   // 모션 감소: 기울기 없이 색만 즉시 변경
+      else start();
+    });
+    const release = () => { pointing = false; if (!gyroOn) { target = null; start(); } };   // 센서를 안 쓰는 중이면 자동 흔들림으로 복귀
+    demo.addEventListener('pointerleave', release);
+    demo.addEventListener('pointercancel', release);   // 손가락이 세로 스크롤을 시작하면 발생
+
+    /* ② 폰 기울기 센서 — requestPermission 이 있으면(iOS 등) 첫 탭에서 권한 요청, 없으면 바로 */
+    function onTilt(e) {
+      if (e.beta == null || e.gamma == null || reduce.matches) return;   // 데스크톱은 null 값이 올 수 있음
+      const a = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+      let gx = e.gamma, gy = e.beta;                     // 세로 모드: 좌우 = gamma, 앞뒤 = beta
+      if (a === 90) { gx = e.beta; gy = -e.gamma; }      // 가로 모드는 축을 돌려 보정
+      else if (a === -90 || a === 270) { gx = -e.beta; gy = e.gamma; }
+      else if (a === 180) { gx = -e.gamma; gy = -e.beta; }
+      if (!base || base.a !== a) base = anchor = { a, x: gx, y: gy };   // 처음 잡은 각도를 가운데·기준점으로
+      if (Math.abs(gx - anchor.x) + Math.abs(gy - anchor.y) > GYRO_WAKE) {   // 진짜 기울임 → 센서가 맡고, 복귀 타이머를 다시 잼
+        anchor = { a, x: gx, y: gy };
+        gyroOn = true;
+        clearTimeout(quietTimer);
+        if (IDLE) quietTimer = setTimeout(quiet, GYRO_QUIET_MS);
+      }
+      if (!gyroOn) return;   // 아직(또는 다시) 가만히 있음 → 자동 흔들림 유지
+      const next = { x: clamp01(.5 + (gx - base.x) / (GYRO_RANGE * 2)), y: clamp01(.5 + (gy - base.y) / (GYRO_RANGE * 2)) };
+      if (target && Math.abs(next.x - target.x) + Math.abs(next.y - target.y) < .004) return;   // 손떨림 무시
+      target = next;
+      start();
+    }
+    function quiet() {   // 폰을 내려놓음 → 다음 진짜 기울임까지 자동 흔들림
+      gyroOn = false;
+      if (!pointing) { target = null; start(); }
+    }
+    const listenTilt = () => window.addEventListener('deviceorientation', onTilt);
+    const DOE = window.DeviceOrientationEvent;
+    if (DOE && typeof DOE.requestPermission === 'function') {
+      card.addEventListener('click', function ask() {   // click 안에서만 권한 창이 뜬다 (pointerdown 은 안 됨)
+        card.removeEventListener('click', ask);
+        DOE.requestPermission().then(s => { if (s === 'granted') listenTilt(); }).catch(() => {});
+      });
+    } else if (DOE) listenTilt();
+
+    /* ③ 루프: 목표가 고정돼 있으면(포인터·센서·IDLE=false) 도착 후 멈추고, 다음 입력이 start() 로 깨운다 */
+    function tick(now) {
+      const dt = Math.min(64, now - (last || now)); last = now;
+      const t = now / 1000 * IDLE_SPEED;
+      const goal = target || (IDLE ? { x: .5 + Math.sin(t) * .32, y: .5 + Math.sin(t * 1.3 + 1) * .26 } : REST);
+      const k = 1 - Math.pow(1 - EASE, dt / 16.7);
+      cur.x += (goal.x - cur.x) * k;
+      cur.y += (goal.y - cur.y) * k;
+      write(cur.x, cur.y);
+      const settled = (target || !IDLE) && Math.abs(goal.x - cur.x) < 5e-4 && Math.abs(goal.y - cur.y) < 5e-4;
+      raf = settled ? 0 : requestAnimationFrame(tick);
+    }
+    const start = () => { if (!raf && onScreen && !document.hidden && !reduce.matches) { last = 0; raf = requestAnimationFrame(tick); } };
+    const stop = () => { cancelAnimationFrame(raf); raf = 0; };
+    new IntersectionObserver(([en]) => { onScreen = en.isIntersecting; onScreen ? start() : stop(); }).observe(stage);
+    document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
+    reduce.addEventListener('change', () => { if (reduce.matches) { stop(); write(REST.x, REST.y); } else start(); });
+    write(cur.x, cur.y);
+    start();
+  })();
+  </script>
+</body>
+</html>

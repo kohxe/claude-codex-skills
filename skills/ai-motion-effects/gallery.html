@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI 모션 효과 갤러리</title>
+<!--
+  20개 효과 데모를 한 화면에서 실시간으로 비교하는 갤러리.
+  각 카드는 effects/ 폴더의 데모를 iframe(loading="lazy")으로 띄운다. 화면 밖 데모는 각자 스스로 멈춘다.
+  file:// 로 바로 열어도 동작한다.
+-->
+<style>
+  :root {
+    --bg: #f4f3ef; --surface: #ffffff; --ink: #18181b; --muted: #6b6b73; --line: #e2e0da;
+    --chip: #ecebe6; --chip-on: #18181b; --chip-on-ink: #ffffff; --accent: #5b5bf0;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111114; --surface: #1b1b20; --ink: #f2f2f4; --muted: #9a9aa5; --line: #2c2c34;
+      --chip: #24242b; --chip-on: #f2f2f4; --chip-on-ink: #111114; --accent: #8b8bff;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #111114; --surface: #1b1b20; --ink: #f2f2f4; --muted: #9a9aa5; --line: #2c2c34;
+    --chip: #24242b; --chip-on: #f2f2f4; --chip-on-ink: #111114; --accent: #8b8bff;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    padding: clamp(16px, 4vw, 48px);
+  }
+  header { max-width: 1280px; margin: 0 auto 28px; }
+  h1 { font-size: clamp(26px, 4vw, 40px); line-height: 1.15; margin: 0 0 8px; letter-spacing: -0.02em; }
+  h1 em { font-style: normal; color: var(--accent); }
+  header p { margin: 0 0 20px; color: var(--muted); max-width: 60ch; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; }
+  .filters button {
+    border: 0; border-radius: 999px; padding: 8px 14px; cursor: pointer;
+    background: var(--chip); color: var(--ink); font: 600 13px/1 inherit; font-family: inherit;
+  }
+  .filters button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+  .filters button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .grid {
+    max-width: 1280px; margin: 0 auto; display: grid; gap: 18px;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .card[hidden] { display: none; }
+  .frame { position: relative; aspect-ratio: 1 / 1; background: var(--chip); }
+  .frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+  .meta { padding: 14px 16px 16px; display: grid; gap: 6px; }
+  .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .name { font-weight: 700; font-size: 16px; }
+  .name small { font-weight: 500; color: var(--muted); font-size: 13px; margin-left: 4px; }
+  .num { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+  .desc { color: var(--muted); font-size: 13.5px; margin: 0; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .chip { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--chip); }
+  .chips a { margin-left: auto; font-size: 13px; color: var(--accent); text-decoration: none; font-weight: 600; }
+  .chips a:hover { text-decoration: underline; }
+  footer { max-width: 1280px; margin: 32px auto 0; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AI 모션 효과 <em>20가지</em></h1>
+  <p>마음에 드는 효과의 이름을 Claude에게 말하면 지금 프로젝트에 맞게 구현해 줍니다. 각 카드는 실제 코드가 돌아가는 데모예요.</p>
+  <div class="filters" role="group" aria-label="유형 필터">
+    <button type="button" data-filter="all" aria-pressed="true">전체</button>
+    <button type="button" data-filter="배경" aria-pressed="false">배경</button>
+    <button type="button" data-filter="텍스트" aria-pressed="false">텍스트</button>
+    <button type="button" data-filter="스타일" aria-pressed="false">스타일</button>
+    <button type="button" data-filter="마이크로" aria-pressed="false">마이크로</button>
+  </div>
+</header>
+
+<main class="grid" id="grid"></main>
+
+<footer>배경 = 섹션 전체를 채우는 효과 · 텍스트 = 헤드라인용 · 스타일 = 컴포넌트 생김새 · 마이크로 = 작은 요소의 움직임</footer>
+
+<script>
+  const EFFECTS = [
+    ['01', 'liquid-motion', 'Liquid Motion', '리퀴드 모션', '배경', '보통', '액체처럼 붙었다 떨어지는 말랑한 덩어리'],
+    ['02', 'holographic', 'Holographic', '홀로그래픽', '스타일', '보통', '각도 따라 무지갯빛이 흐르는 포일 카드'],
+    ['03', 'claymorphism', 'Claymorphism', '클레이모피즘', '스타일', '가벼움', '찰흙처럼 말랑한 3D 파스텔 UI'],
+    ['04', 'halftone', 'Halftone', '하프톤', '배경', '무거움', '만화 인쇄 같은 점 패턴'],
+    ['05', 'isometric', 'Isometric', '아이소메트릭', '스타일', '가벼움', '비스듬히 내려다본 3D 블록'],
+    ['06', 'kinetic-typography', 'Kinetic Typography', '키네틱 타이포', '텍스트', '가벼움', '글자가 하나씩 춤추며 등장'],
+    ['07', 'y2k-chrome', 'Y2K Chrome', 'Y2K 크롬', '텍스트', '가벼움', '2000년대 은빛 금속 글씨'],
+    ['08', 'paper-cutout', 'Paper Cutout', '페이퍼 컷아웃', '배경', '보통', '종이를 오려 겹친 그림자 레이어'],
+    ['09', 'infinite-zoom', 'Infinite Zoom', '인피니트 줌', '배경', '보통', '끝없이 빨려 들어가는 터널'],
+    ['10', 'vaporwave', 'Vaporwave', '베이퍼웨이브', '배경', '가벼움', '80년대 네온 석양과 그리드'],
+    ['11', 'text-scramble', 'Text Scramble', '텍스트 스크램블', '텍스트', '가벼움', '해커 영화처럼 글자가 촤라락 풀림'],
+    ['12', 'bauhaus', 'Bauhaus', '바우하우스', '스타일', '가벼움', '빨강·파랑·노랑 기하 도형 포스터'],
+    ['13', 'neubrutalism', 'Neubrutalism', '뉴브루탈리즘', '스타일', '가벼움', '두꺼운 검은 테두리와 각진 그림자'],
+    ['14', 'shape-morph', 'Shape Morph', '셰이프 모프', '마이크로', '보통', '도형이 스르륵 다른 도형으로 변신'],
+    ['15', 'memphis-design', 'Memphis Design', '멤피스 디자인', '배경', '가벼움', '지그재그·물결·점이 뿌려진 80년대 팝'],
+    ['16', 'line-animation', 'Line Animation', '라인 애니메이션', '마이크로', '가벼움', '선이 스스로 그려지는 드로잉'],
+    ['17', 'low-poly', 'Low Poly', '로우 폴리', '배경', '무거움', '삼각형 조각으로 이뤄진 다면체 면'],
+    ['18', 'squash-and-stretch', 'Squash and Stretch', '스쿼시 앤 스트레치', '마이크로', '가벼움', '젤리처럼 눌렸다 늘어나는 탄성'],
+    ['19', 'grainy-gradient', 'Grainy Gradient', '그레이니 그라디언트', '배경', '보통', '필름 노이즈 낀 몽환적 그라데이션'],
+    ['20', 'glitch', 'Glitch', '글리치', '텍스트', '가벼움', '디지털 오류처럼 깨지는 화면'],
+  ];
+
+  const grid = document.getElementById('grid');
+  grid.innerHTML = EFFECTS.map(([n, slug, en, ko, type, weight, desc]) => {
+    const href = `effects/${n}-${slug}.html`;
+    return `
+      <article class="card" data-type="${type}">
+        <div class="frame">
+          <iframe src="${href}" title="${en} 데모" loading="lazy"></iframe>
+        </div>
+        <div class="meta">
+          <div class="row"><span class="name">${en}<small>${ko}</small></span><span class="num">${n}</span></div>
+          <p class="desc">${desc}</p>
+          <div class="chips">
+            <span class="chip">${type}</span><span class="chip">${weight}</span>
+            <a href="${href}" target="_blank" rel="noopener">전체 화면 ↗</a>
+          </div>
+        </div>
+      </article>`;
+  }).join('');
+
+  const buttons = document.querySelectorAll('.filters button');
+  buttons.forEach(btn => btn.addEventListener('click', () => {
+    const f = btn.dataset.filter;
+    buttons.forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+    grid.querySelectorAll('.card').forEach(card => {
+      card.hidden = f !== 'all' && card.dataset.type !== f;
+    });
+  }));
+</script>
+</body>
+</html>

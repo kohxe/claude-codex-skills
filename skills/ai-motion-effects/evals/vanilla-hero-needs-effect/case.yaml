@@ -1,0 +1,13 @@
+schema_version: "1.1"
+name: vanilla-hero-needs-effect
+expected_outcome: |
+  Picks one or two fitting effects for a developer-tool hero (e.g. Text Scramble,
+  Grainy Gradient, Line Animation, Low Poly), says which and why, and implements them in
+  the plain HTML/CSS page without external libraries, limited to the hero (grain/noise,
+  glow and decorative overlays each count as an effect; a static contrast scrim does not),
+  keeping the copy and the solid brand fills, taking every added colour from the existing
+  tokens or deriving it from --brand (no new hard-coded hues), with prefers-reduced-motion
+  handling, readable text, any JS loop and any infinite CSS animation paused off-screen,
+  and real text kept for screen readers.
+context:
+  scaffold_script: place-files.sh

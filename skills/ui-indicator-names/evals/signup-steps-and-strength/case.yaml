@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: signup-steps-and-strength
+expected_outcome: |
+  Names the two elements (Step indicator / 스텝 인디케이터 and Password strength meter /
+  강도 표시기) and adds both to signup.html: an ordered-list step indicator that marks the
+  current step with aria-current="step" and follows the existing prev/next navigation
+  (moving keyboard focus into the newly shown step's heading or first field), and
+  a strength meter with a text grade (not colour only) exposed through aria-live and/or
+  aria-describedby, whose live text changes only when the grade changes, with no external
+  libraries and the original fields kept.
+context:
+  scaffold_script: place-files.sh

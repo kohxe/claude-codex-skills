@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>07 · Y2K Chrome · Y2K 크롬</title>
+<!--
+EFFECT: Y2K Chrome (Y2K 크롬)
+느낌: 2000년 무렵 CD 재킷·MP3 플레이어 광고처럼 번쩍이는 리퀴드 메탈 — 미래지향적인데 묘하게 노스탤지어
+잘 맞는 곳: 히어로 워드마크·로고타입, 드롭/이벤트 런칭 타이틀, 음악·패션·스트릿 브랜드, CTA 필 버튼, 배지
+피해야 할 곳: 본문·작은 글씨(그라디언트 텍스트는 작으면 뭉개짐), 신뢰가 중요한 금융·의료 UI, 한 화면에 여러 개(금방 싸 보임)
+핵심 기법:
+  - background-clip:text + 다중 스톱 linear-gradient: 위 = 하늘 반사, 50% 부근 = 어두운 지평선, 아래 = 밝은 바닥 반사
+  - -webkit-text-stroke 외곽선 + filter:drop-shadow 2겹(아래로 단단한 그림자 + 푸른 글로우) — 글자가 투명이라 text-shadow 대신 filter
+  - 같은 글자를 겹친 aria-hidden 레이어에 흰 띠 그라디언트를 clip → background-position 애니메이션 = 하이라이트 스윕
+  - 4각 별 반짝이: clip-path polygon 별 + 둥근 글로우 점, scale/rotate 트윙클을 --d 지연만 달리해 반복
+조절 포인트:
+  --chrome     크롬 그라디언트 (지평선 위치·색을 바꾸면 금속 느낌이 바뀜. 금색 크롬: #fff7dc / #d9a441 / #3a2306 계열)
+  --glow       바깥 글로우 색
+  --stroke     글자 외곽선 두께 (em)
+  --shine-dur  하이라이트 스윕 주기 (기본 4.2s, 앞 55% 동안 지나가고 나머지는 쉼)
+  .spark       style의 --x/--y(위치 %), --s(크기 배수), --d(지연)
+성능: 가벼움 — 스윕은 background-position(리페인트)이지만 헤드라인 한 줄이라 부담이 적고, 반짝이는 transform/opacity만 사용. 저사양 모바일에서는 drop-shadow를 1겹으로 줄이는 것을 권장
+접근성: 하이라이트 레이어·반짝이는 aria-hidden. reduced-motion에서는 스윕·트윙클을 멈추고 하이라이트가 왼쪽에 걸린 정지 프레임을 보여줌. 크롬 텍스트는 장식용 큰 제목에만 쓰고, 버튼 글자(#0a1433 on 밝은 크롬)는 대비 7:1 이상
+이식 메모:
+  - React: <h1 className="chrome">{text}<span className="chrome__shine" aria-hidden>{text}</span></h1> — 두 텍스트가 정확히 같아야 겹침이 맞음. JS 불필요
+  - Tailwind: bg-clip-text text-transparent는 그대로 쓰고, 긴 그라디언트는 --chrome 토큰을 globals.css에 둔 뒤 [background-image:var(--chrome)]로 참조. keyframes는 theme.extend
+  - Next.js: 순수 CSS라 서버 컴포넌트 그대로 사용 가능
+  - 이탤릭 글자는 오른쪽 끝이 박스를 넘어 그라디언트가 잘리므로 좌우 padding(.12em)을 유지할 것
+-->
+<style>
+  :root{
+    --chrome:linear-gradient(180deg,
+      #ffffff 0%,#e3eeff 16%,#a9c3f0 34%,#6684c4 46%,   /* 하늘 반사 */
+      #0c1636 51%,#1f2f60 54%,                          /* 어두운 지평선 */
+      #6a87c2 63%,#c6d6f3 77%,#ffffff 88%,#9fb6e0 100%);/* 밝은 바닥 반사 */
+    --glow:rgba(96,160,255,.6);
+    --stroke:.014em;
+    --shine-dur:4.2s;
+    --font:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:#03040d;color:#dfe8ff;font-family:var(--font)}
+
+  .demo{
+    position:relative;height:100%;overflow:hidden;isolation:isolate;
+    display:grid;place-content:center;justify-items:center;gap:clamp(10px,2.6vmin,24px);
+    padding:16px;text-align:center;
+    background:
+      radial-gradient(60% 45% at 50% 46%,rgba(56,104,255,.32),transparent 70%),
+      radial-gradient(130% 70% at 50% 125%,#2448c9 0%,rgba(36,72,201,0) 60%),
+      linear-gradient(#03040d,#07102e);
+  }
+  /* 장식: 기울어진 궤도 링 2개 */
+  .demo::before,.demo::after{
+    content:"";position:absolute;left:50%;top:50%;z-index:-1;
+    width:min(150vmin,1100px);aspect-ratio:3.4;border:1px solid rgba(150,190,255,.22);border-radius:50%;
+    translate:-50% -50%;rotate:-9deg;
+  }
+  .demo::after{width:min(118vmin,860px);rotate:7deg;border-color:rgba(150,190,255,.12)}
+
+  .eyebrow{margin:0;font-size:clamp(11px,1.6vmin,13px);font-weight:700;letter-spacing:.38em;padding-left:.38em;color:#cfe0ff;text-transform:uppercase}
+  .sub{margin:0;font-size:clamp(12px,2vmin,17px);color:#c3d3f7;letter-spacing:.02em}
+
+  /* ───── 크롬 헤드라인 ───── */
+  .chrome-wrap{position:relative;display:inline-block}
+  .chrome{
+    position:relative;display:inline-block;margin:0;padding:0 .12em;
+    font-size:clamp(44px,15vmin,190px);font-weight:900;font-style:italic;line-height:1;
+    letter-spacing:-.035em;text-transform:uppercase;
+    background:var(--chrome);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    -webkit-text-stroke:var(--stroke) rgba(236,244,255,.9);
+    filter:drop-shadow(0 .035em 0 #040a24) drop-shadow(0 0 .14em var(--glow));
+  }
+  /* 같은 글자를 겹쳐 흰 띠만 clip → 지나가는 하이라이트 */
+  .chrome__shine{
+    position:absolute;inset:0;padding:inherit;
+    background:linear-gradient(105deg,transparent 44%,rgba(255,255,255,.95) 50%,transparent 56%) 100% 0 / 300% 100% no-repeat;
+    -webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-stroke:0;
+    animation:shine var(--shine-dur) cubic-bezier(.5,0,.2,1) infinite;
+  }
+  @keyframes shine{0%{background-position:100% 0}55%,100%{background-position:0 0}}
+
+  /* ───── 4각 별 반짝이 ───── */
+  .spark{
+    position:absolute;left:var(--x);top:var(--y);pointer-events:none;
+    width:calc(var(--s,1) * clamp(14px,3.4vmin,36px));aspect-ratio:1;translate:-50% -50%;
+    animation:twinkle 3.2s ease-in-out var(--d,0s) infinite both;
+  }
+  .spark::before,.spark::after{content:"";position:absolute;inset:0}
+  .spark::before{
+    background:linear-gradient(135deg,#fff 30%,#bcd6ff);
+    clip-path:polygon(50% 0,57% 43%,100% 50%,57% 57%,50% 100%,43% 57%,0 50%,43% 43%);
+  }
+  .spark::after{inset:38%;border-radius:50%;background:#fff;box-shadow:0 0 8px 3px rgba(150,195,255,.9)}
+  @keyframes twinkle{
+    0%,60%,100%{transform:scale(0) rotate(-30deg);opacity:0}
+    25%{transform:scale(1) rotate(15deg);opacity:1}
+  }
+
+  /* ───── 크롬 필 버튼 ───── */
+  .pill{
+    position:relative;overflow:hidden;display:inline-flex;align-items:center;gap:.6em;
+    margin-top:clamp(4px,1vmin,10px);padding:.95em 1.9em;border:0;border-radius:999px;cursor:pointer;
+    font:800 clamp(12px,1.9vmin,16px)/1 var(--font);letter-spacing:.08em;color:#0a1433;
+    background:linear-gradient(180deg,#ffffff 0%,#e4edfc 30%,#94aad3 50%,#c3d2ee 68%,#f6f9ff 100%);
+    box-shadow:inset 0 1px 0 #fff,inset 0 -2px 4px rgba(16,30,80,.35),0 0 0 1px rgba(210,225,255,.55),
+               0 10px 26px -6px rgba(60,120,255,.55),0 0 28px rgba(110,165,255,.28);
+    transition:transform .2s ease,box-shadow .2s ease;
+  }
+  .pill::before{
+    content:"";position:absolute;inset:0;border-radius:inherit;
+    background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.95) 50%,transparent 70%);
+    translate:-110% 0;transition:translate .7s cubic-bezier(.3,.7,.2,1);
+  }
+  .pill > span{position:relative}
+  .pill:hover{transform:translateY(-2px);box-shadow:inset 0 1px 0 #fff,inset 0 -2px 4px rgba(16,30,80,.35),0 0 0 1px rgba(225,236,255,.8),0 14px 32px -6px rgba(60,120,255,.7),0 0 40px rgba(110,165,255,.45)}
+  .pill:hover::before{translate:110% 0}
+  .pill:active{transform:translateY(1px)}
+  .pill:focus-visible{outline:2px solid #bfe0ff;outline-offset:4px}
+
+  @media (prefers-reduced-motion: reduce){
+    .chrome__shine{animation:none;background-position:68% 0}   /* 왼쪽에 걸린 정지 하이라이트 */
+    .spark{animation:none;opacity:1}
+    .pill,.pill::before{transition:none}
+  }
+
+  .tag{position:fixed;left:12px;bottom:12px;margin:0;font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff}
+</style>
+</head>
+<body>
+  <main class="demo">
+    <p class="eyebrow">✦ Millennium Edition ✦</p>
+    <div class="chrome-wrap">
+      <h1 class="chrome">Chrome<span class="chrome__shine" aria-hidden="true">Chrome</span></h1>
+      <span class="spark" style="--x:4%;--y:14%;--s:1.2;--d:0s" aria-hidden="true"></span>
+      <span class="spark" style="--x:97%;--y:22%;--s:.8;--d:.9s" aria-hidden="true"></span>
+      <span class="spark" style="--x:86%;--y:96%;--s:1;--d:1.7s" aria-hidden="true"></span>
+      <span class="spark" style="--x:18%;--y:92%;--s:.6;--d:2.3s" aria-hidden="true"></span>
+      <span class="spark" style="--x:58%;--y:-6%;--s:.7;--d:1.2s" aria-hidden="true"></span>
+    </div>
+    <p class="sub">리퀴드 메탈처럼 흐르는 새천년 감성</p>
+    <button class="pill" type="button"><span>지금 접속하기</span><span aria-hidden="true">→</span></button>
+  </main>
+  <p class="tag">07 · Y2K Chrome</p>
+</body>
+</html>
